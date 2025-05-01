@@ -5,86 +5,66 @@ import torch.nn.functional as F
 # 3D编码解码器
 class SGLVEncoderDecoder(nn.Module):
     def __init__(self):
-        super(SGLVEncoderDecoder, self).__init__()
+        super().__init__()
         self.encoder = nn.Sequential(
-            # C64-K4-S2-P1
-            nn.Conv3d(5, 64, kernel_size=4, stride=2, padding=1),
+            # C5→64
+            nn.Conv3d(5, 64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            # C64-K3-S1-P1
             nn.Conv3d(64, 64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            # C128-K4-S2-P1
-            nn.Conv3d(64, 128, kernel_size=4, stride=2, padding=1),
+            
+            # C64→128
+            nn.Conv3d(64, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            # C128-K3-S1-P1
             nn.Conv3d(128, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            # C256-K4-S2-P1
-            nn.Conv3d(128, 256, kernel_size=4, stride=2, padding=1),
+            
+            # C128→256
+            nn.Conv3d(128, 256, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            # C256-K3-S1-P1
             nn.Conv3d(256, 256, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            # C256-K3-S1-P1
-            nn.Conv3d(256, 256, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            # C128-K3-S1-P1
+            nn.ReLU()
+        )
+        self.decoder = nn.Sequential(
+            # C256→128
             nn.Conv3d(256, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            # C128-K3-S1-P1
             nn.Conv3d(128, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            # C64-K3-S1-P1
+            
+            # C128→64
             nn.Conv3d(128, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv3d(64, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            
+            # C64→32
+            nn.Conv3d(64, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU()
         )
-        self.color_decoder = nn.Sequential(
-            # C32-K3-S1-P1
-            nn.Conv3d(64, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            # C3-K3-S1-P1
-            nn.Conv3d(32, 3, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
+        # 各参数预测头
+        self.color_head = nn.Conv3d(32, 3, kernel_size=3, padding=1)
+        self.alpha_head = nn.Sequential(
+            nn.Conv3d(32, 1, kernel_size=3, padding=1),
+            nn.Sigmoid()  # 约束到[0,1]
         )
-        self.alpha_decoder = nn.Sequential(
-            # C32-K3-S1-P1
-            nn.Conv3d(64, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            # C1-K3-S1-P1
-            nn.Conv3d(32, 1, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
+        self.w_head = nn.Conv3d(32, 3, kernel_size=3, padding=1)
+        self.lamda_head = nn.Sequential(
+            nn.Conv3d(32, 1, kernel_size=3, padding=1),
+            nn.Softplus()  # 确保正数
         )
-        self.w_decoder = nn.Sequential(
-            # C32-K3-S1-P1
-            nn.Conv3d(64, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            # C3-K3-S1-P1
-            nn.Conv3d(32, 3, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
-        )
-        self.lamda_decoder = nn.Sequential(
-            # C32-K3-S1-P1
-            nn.Conv3d(64, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            # C1-K3-S1-P1
-            nn.Conv3d(32, 1, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
-        )
-        self.s_decoder = nn.Sequential(
-            # C32-K3-S1-P1
-            nn.Conv3d(64, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            # C3-K3-S1-P1
-            nn.Conv3d(32, 3, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
+        self.s_head = nn.Sequential(
+            nn.Conv3d(32, 3, kernel_size=3, padding=1),
+            nn.Tanh()  # 归一化到[-1,1]，后续L2归一化
         )
 
     def forward(self, volume):
         features = self.encoder(volume)
-        color = self.color_decoder(features)
-        alpha = self.alpha_decoder(features)
-        w = self.w_decoder(features)
-        lamda = self.lamda_decoder(features)
-        s = self.s_decoder(features)
-        print(color.shape)
-        return torch.cat([color, alpha, w, lamda, s], dim=1)
+        x = self.decoder(features)
+        # 各参数预测
+        color = self.color_head(x)
+        alpha = self.alpha_head(x)
+        w = self.w_head(x)
+        lamda = self.lamda_head(x)
+        s = self.s_head(x)
+        return torch.cat([color, alpha, w, lamda, s], dim=0)

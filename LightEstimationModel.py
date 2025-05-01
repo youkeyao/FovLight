@@ -70,6 +70,7 @@ class LightingEstimationModel(nn.Module):
         voxel_size = (self.voxel_range[1] - self.voxel_range[0]) / torch.tensor(self.voxel_resolution)
         # 创建体积
         self.volume = torch.zeros(5, *self.voxel_resolution, device=self.volume.device)
+
         # 将图像投影到3D空间
         x = torch.arange(self.voxel_resolution[0], device=self.volume.device)
         y = torch.arange(self.voxel_resolution[1], device=self.volume.device)
@@ -173,7 +174,7 @@ class LightingEstimationModel(nn.Module):
 
 if __name__ == "__main__":
     selected_gpu = get_free_gpu()
-    device = torch.device(f"cuda:{selected_gpu}" if selected_gpu else "cpu")
+    device = torch.device("cpu" if selected_gpu is None else f"cuda:{selected_gpu}")
     print(f"Using device: {device}")
     # 训练
     model = LightingEstimationModel().to(device)
@@ -185,13 +186,13 @@ if __name__ == "__main__":
         depth = batch['depth'][0]
         lighting = batch['lighting'][0]
         image_np = image.permute(1, 2, 0).numpy()[:, :, ::-1]
-        # cv2.imshow("Image and Depth Map", image_np)
-        # cv2.waitKey(0)
+        cv2.imshow("Image and Depth Map", image_np)
+        cv2.waitKey(0)
         print("Start")
 
         start_time = time.time()
         model(projection_matrix, image, depth)
         end_time = time.time()
         print(f"代码执行时间：{end_time - start_time} 秒")
-        # visualize_voxel_data(model.volume, model.voxel_range)
+        visualize_voxel_data(model.volume, model.voxel_range)
         break
