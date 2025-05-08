@@ -24,7 +24,7 @@ class SGLVRenderer(nn.Module):
         directions = torch.stack([x, y, z], dim=-1)
         directions = F.normalize(directions, p=2, dim=-1)
         # 采样体积并分配到环境贴图
-        envmap = self.sample_volume(origin, directions, voxel_range, SGLV)
+        envmap = self.sample_volume(origin.to(SGLV.device), directions, voxel_range, SGLV)
         return envmap
 
     def sample_volume(self, ray_origin, ray_directions, voxel_range, SGLV):
@@ -33,7 +33,7 @@ class SGLVRenderer(nn.Module):
 
         # 生成采样点
         envmap = torch.zeros(3, *self.resolution)
-        t_values = torch.linspace(0, 1, steps=100).reshape(1, 1, -1)
+        t_values = torch.linspace(0, 1, steps=100, device=SGLV.device).reshape(1, 1, -1)
         t0_expanded = t0.unsqueeze(-1)
         t1_expanded = t1.unsqueeze(-1)
         t_values = t0_expanded + t_values * (t1_expanded - t0_expanded)

@@ -1,11 +1,13 @@
 import cv2
 import time
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils import get_free_gpu, create_projection_matrix, visualize_voxel_data
-from Datasets import OpenRoomsDataset
+from KePanoLighting import KePanoLighting
 from SGLVEncoderDecoder import SGLVEncoderDecoder
+from SGLVRenderer import SGLVRenderer
 
 # 混合网络
 class BlendingNetwork(nn.Module):
@@ -46,28 +48,30 @@ class LightingEstimationModel(nn.Module):
         self.register_buffer('sglv_volume', torch.randn(11, *self.voxel_resolution))
 
         self.sglv_encoder_decoder = SGLVEncoderDecoder()
-        self.blending_network = BlendingNetwork()
+        self.sglv_renderer = SGLVRenderer()
+        # self.blending_network = BlendingNetwork()
         # self.sglv = SGLV()
         # self.renderer = MonteCarloRenderer()
         # self.sgru = SGGRU(input_channels=128, hidden_channels=128)
 
-    def forward(self, camera_matrix, input_image, depth_map):
+    def forward(self, origin, camera_matrix, input_image, depth_map):
         # 单图像输入
         self.initialize_volume(camera_matrix, input_image, depth_map)
         self.sglv_volume = self.sglv_encoder_decoder(self.volume)
-        # sglv_prediction = self.encoder_decoder(*init_volume)
+        envmap = self.sglv_renderer(origin, self.sglv_volume, self.voxel_range)
         # blended_env = self.blending_network(sglv_prediction, input_image, depth_map)
         # rendered_sphere = self.renderer(blended_env)
         # return blended_env, rendered_sphere
+        return envmap
 
     def initialize_volume(self, camera_matrix, input_image, depth_map):
         # _, height, width = input_image.shape
         D_max = torch.max(depth_map)
         self.voxel_range = [
-            torch.tensor([-1.1 * D_max, -0.8 * D_max, -1.2 * D_max]),
-            torch.tensor([1.1 * D_max, 0.8 * D_max, 0.5 * D_max])
+            torch.tensor([-1.1 * D_max, -0.8 * D_max, -1.2 * D_max], device=self.volume.device),
+            torch.tensor([1.1 * D_max, 0.8 * D_max, 0.5 * D_max], device=self.volume.device)
         ]
-        voxel_size = (self.voxel_range[1] - self.voxel_range[0]) / torch.tensor(self.voxel_resolution)
+        voxel_size = (self.voxel_range[1] - self.voxel_range[0]) / torch.tensor(self.voxel_resolution, device=self.volume.device)
         # 创建体积
         self.volume = torch.zeros(5, *self.voxel_resolution, device=self.volume.device)
 
@@ -178,21 +182,34 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     # 训练
     model = LightingEstimationModel().to(device)
+    origin = torch.tensor([0, 0, 0])
     projection_matrix = create_projection_matrix(57.9516, 640/480, 0.1, 100)
-    dataset = OpenRoomsDataset(root_dir='/mnt/data/youkeyao/Datasets/OpenRooms/releasingData')
+    dataset = KePanoLighting(root='/mnt/data/youkeyao/Datasets/FutureHouse/KePanoLight')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
     for batch in dataloader:
         image = batch['image'][0]
+        albedo = batch['albedo'][0]
         depth = batch['depth'][0]
         lighting = batch['lighting'][0]
         image_np = image.permute(1, 2, 0).numpy()[:, :, ::-1]
-        cv2.imshow("Image and Depth Map", image_np)
+        albedo_np = albedo.permute(1, 2, 0).numpy()[:, :, ::-1]
+        depth_np = depth.repeat(3, 1, 1).permute(1, 2, 0).numpy()[:, :, ::-1]
+        depth_np /= 5
+        combined_image = np.hstack((image_np, depth_np))
+        cv2.imshow("Albedo", albedo_np)
+        cv2.imshow("Image and Depth Map", combined_image)
         cv2.waitKey(0)
         print("Start")
 
         start_time = time.time()
-        model(projection_matrix, image, depth)
+        envmap = model(origin, projection_matrix, image, depth)
         end_time = time.time()
         print(f"代码执行时间：{end_time - start_time} 秒")
         visualize_voxel_data(model.volume, model.voxel_range)
+        print("End")
+
+        envmap_np = envmap.permute(1, 2, 0).detach().cpu().numpy()[:, :, ::-1]
+        cv2.imshow("envmap", envmap_np)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
         break
