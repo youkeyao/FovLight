@@ -9,7 +9,7 @@ def fov_to_focal_length(fov_deg, sensor_width_pixels):
     fov_rad = np.deg2rad(fov_deg)
     return sensor_width_pixels / (2 * np.tan(fov_rad / 2))
 
-def equirectangular_to_perspective(input_shape=(256, 512), target_shape=(320, 240), h_fov_deg=57.9516, yaw=0, pitch=0, roll=0):
+def equirectangular_to_perspective(input_shape=(512, 256), target_shape=(40, 30), h_fov_deg=57.9516, yaw=0, pitch=0, roll=0):
     # 输入参数检查
     # assert len(img.shape) == 3, "输入图像需为RGB格式"
     W, H = input_shape
@@ -130,7 +130,7 @@ class KePanoLighting(Dataset):
     example['depth'],
     example['mask']
     """
-    def __init__(self, root, pano_h=256, env_h=16, probes_h=128, out_w=320, out_h=240, is_random_exposure=True):
+    def __init__(self, root, pano_h=256, env_h=16, probes_h=128, out_w=40, out_h=30, is_random_exposure=True):
         super().__init__()
         
         self.root = root
@@ -143,6 +143,8 @@ class KePanoLighting(Dataset):
         self.out_h=out_h
         self.out_w=out_w
 
+        self.map_x, self.map_y, self.z_rot = equirectangular_to_perspective((self.pano_w, self.pano_h), (self.out_w, self.out_h))
+
         self.max_depth = 10   # 10 m, norm [0,1]
 
         self.all_item = self.read_all_item(root)
@@ -152,14 +154,13 @@ class KePanoLighting(Dataset):
         one_item = self.all_item[index]
         one_path = one_item[0]
         iindex = one_item[1]
+        xindex, yindex = one_item[2]
         
         # range: [-2,-0.5)
         if self.is_random_exposure:
             random_exposure = torch.rand(1)*1.5 - 2.0
         else:
             random_exposure = -1.0
-
-        map_x, map_y, z_rot = equirectangular_to_perspective((self.pano_w, self.pano_h), (self.out_w, self.out_h))
 
         light = cv2.imread(os.path.join(one_path,str(iindex)+'_light.exr'),-1)
         light = np.asarray(light,dtype=np.float32)
@@ -168,6 +169,9 @@ class KePanoLighting(Dataset):
         light = light.permute(2,0,1)
         light = probe_img2channel(light,self.env_h,self.probes_h,self.probes_w)
         light = light * torch.pow(torch.tensor(2.0),random_exposure)
+        lighting_x = int(self.map_x[yindex, xindex] / self.pano_w * self.probes_w)
+        lighting_y = int(self.map_y[yindex, xindex] / self.pano_h * self.probes_h)
+        light = light[:, :, :, lighting_y, lighting_x]
 
         one_path = one_path.replace('LightProbeData','CubemapData').replace('KePanoLight','KePanoData')
 
@@ -175,7 +179,7 @@ class KePanoLighting(Dataset):
         image = cv2.resize(image,(self.pano_w,self.pano_h))
         image = np.asarray(image,dtype=np.float32)
         image = image[...,::-1].copy()
-        image = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR)
+        image = cv2.remap(image, self.map_x, self.map_y, cv2.INTER_LINEAR)
         image = torch.from_numpy(image)
         image = image.permute(2,0,1)
         image = image * torch.pow(torch.tensor(2.0),random_exposure)
@@ -217,15 +221,15 @@ class KePanoLighting(Dataset):
         depth = cv2.imread(os.path.join(one_path,str(iindex)+'_depth.hdr'),-1)[:,:,0:1]
         depth = cv2.resize(depth,(self.pano_w,self.pano_h))
         depth = np.asarray(depth,dtype=np.float32)
-        depth = cv2.remap(depth, map_x, map_y, cv2.INTER_LINEAR)
-        depth *= z_rot
+        depth = cv2.remap(depth, self.map_x, self.map_y, cv2.INTER_LINEAR)
+        depth *= self.z_rot
         depth = torch.from_numpy(depth)
         depth = depth.unsqueeze(0)
 
         depth_mask = (depth>0) & (depth<=self.max_depth) & (~torch.isnan(depth))
 
         name = one_path.split('/')[-3]+"_"+str(iindex)
-        
+
         batchDict = {
             'image':image,
             'albedo':albedo,
@@ -236,8 +240,8 @@ class KePanoLighting(Dataset):
             'depth_mask':depth_mask,
             'mask':mask,
             'lighting':light,
-            'map_x':map_x,
-            'map_y':map_y,
+            'lighting_x':xindex,
+            'lighting_y':yindex,
             'name':name
         }
         
@@ -254,16 +258,29 @@ class KePanoLighting(Dataset):
             if not os.path.exists(os.path.join(root.replace('KePanoLight','KePanoData'),id)):
                 continue
             whole_path = os.path.join(root,id,'ue4_result','LightProbeData')
+            # -----------filter----------------------------
+            data_path = whole_path.replace('LightProbeData','CubemapData').replace('KePanoLight','KePanoData')
+            depth = cv2.imread(os.path.join(data_path,'0_depth.hdr'),-1)[:,:,0:1]
+            depth = cv2.resize(depth,(self.pano_w,self.pano_h))
+            depth = np.asarray(depth,dtype=np.float32)
+            depth = cv2.remap(depth, self.map_x, self.map_y, cv2.INTER_LINEAR)
+            depth *= self.z_rot
+            if np.max(depth) > 10 or np.max(depth) < 2:
+                continue
+            # -----------------------------------------------
             items = os.listdir(whole_path)
             if (len(items)) != 1:
                 print(id)
                 continue
             num = len(items)
-            for i in range(0, num):
-                one_item = []
-                one_item.append(whole_path)
-                one_item.append(i)
-                all_item.append(one_item)
+            for i in range(num):
+                for x in range(self.out_w):
+                    for y in range(self.out_h):
+                        one_item = []
+                        one_item.append(whole_path)
+                        one_item.append(i)
+                        one_item.append((x, y))
+                        all_item.append(one_item)
         return all_item
 
 if __name__ == "__main__":
@@ -275,8 +292,8 @@ if __name__ == "__main__":
         albedo = batch['albedo'][0]
         depth = batch['depth'][0]
         lighting = batch['lighting'][0]
-        map_x = batch['map_x'][0]
-        map_y = batch['map_y'][0]
+        lighting_x = batch['lighting_x'][0]
+        lighting_y = batch['lighting_y'][0]
 
         albedo_np = albedo.permute(1, 2, 0).numpy()[:, :, ::-1]
         image_np = image.permute(1, 2, 0).numpy()[:, :, ::-1]
@@ -284,22 +301,12 @@ if __name__ == "__main__":
         # depth_np /= np.max(depth_np)
         depth_np /= 5
         combined_image = np.hstack((image_np, depth_np))
-
-        lighting_nps = []
-        for x in range(dataset.out_w):
-            for y in range(dataset.out_h):
-                lighting_x = int(map_x[y, x] / dataset.pano_w * dataset.probes_w)
-                lighting_y = int(map_y[y, x] / dataset.pano_h * dataset.probes_h)
-                lighting_np = lighting[:, :, :, lighting_y, lighting_x].permute(1, 2, 0).numpy()[:, :, ::-1]
-                lighting_nps.append(lighting_np)
+        lighting_np = lighting.permute(1, 2, 0).numpy()[:, :, ::-1]
 
         cv2.imshow("Albedo", albedo_np)
         cv2.imshow("Image and Depth Map", combined_image)
-        for i in range(len(lighting_nps)):
-            cv2.imshow("Lighting map", lighting_nps[i])
-            key = cv2.waitKey(0) & 0xFF
-            if key == ord('q'):
-                break
+        cv2.imshow("Lighting map", lighting_np)
+        print(lighting_x, lighting_y)
         key = cv2.waitKey(0) & 0xFF
         if key == ord('q'):
             break

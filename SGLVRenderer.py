@@ -32,7 +32,7 @@ class SGLVRenderer(nn.Module):
         t0, t1 = self.ray_box_intersection(ray_origin, ray_directions, voxel_range)
 
         # 生成采样点
-        envmap = torch.zeros(3, *self.resolution)
+        envmap = torch.zeros(3, *self.resolution, device=SGLV.device)
         t_values = torch.linspace(0, 1, steps=100, device=SGLV.device).reshape(1, 1, -1)
         t0_expanded = t0.unsqueeze(-1)
         t1_expanded = t1.unsqueeze(-1)

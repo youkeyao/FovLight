@@ -190,7 +190,6 @@ if __name__ == "__main__":
         image = batch['image'][0]
         albedo = batch['albedo'][0]
         depth = batch['depth'][0]
-        lighting = batch['lighting'][0]
         image_np = image.permute(1, 2, 0).numpy()[:, :, ::-1]
         albedo_np = albedo.permute(1, 2, 0).numpy()[:, :, ::-1]
         depth_np = depth.repeat(3, 1, 1).permute(1, 2, 0).numpy()[:, :, ::-1]
