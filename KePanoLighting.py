@@ -130,7 +130,7 @@ class KePanoLighting(Dataset):
     example['depth'],
     example['mask']
     """
-    def __init__(self, root, pano_h=256, env_h=16, probes_h=128, out_w=40, out_h=30, is_random_exposure=True):
+    def __init__(self, root, pano_h=256, env_h=16, probes_h=128, out_w=40, out_h=30, is_random_exposure=False):
         super().__init__()
         
         self.root = root
@@ -265,8 +265,9 @@ class KePanoLighting(Dataset):
             depth = np.asarray(depth,dtype=np.float32)
             depth = cv2.remap(depth, self.map_x, self.map_y, cv2.INTER_LINEAR)
             depth *= self.z_rot
-            if np.max(depth) > 10 or np.max(depth) < 2:
+            if np.max(depth) > 10 or np.min(depth) < 0.5:
                 continue
+            depth /= np.max(depth)
             # -----------------------------------------------
             items = os.listdir(whole_path)
             if (len(items)) != 1:
@@ -298,10 +299,11 @@ if __name__ == "__main__":
         albedo_np = albedo.permute(1, 2, 0).numpy()[:, :, ::-1]
         image_np = image.permute(1, 2, 0).numpy()[:, :, ::-1]
         depth_np = depth.repeat(3, 1, 1).permute(1, 2, 0).numpy()[:, :, ::-1]
-        # depth_np /= np.max(depth_np)
-        depth_np /= 5
+        depth_np /= np.max(depth_np)
         combined_image = np.hstack((image_np, depth_np))
+        combined_image = cv2.resize(combined_image, (combined_image.shape[1] * 10, combined_image.shape[0] * 10), interpolation=cv2.INTER_LINEAR)
         lighting_np = lighting.permute(1, 2, 0).numpy()[:, :, ::-1]
+        lighting_np = cv2.resize(lighting_np, (lighting_np.shape[1] * 10, lighting_np.shape[0] * 10), interpolation=cv2.INTER_LINEAR)
 
         cv2.imshow("Albedo", albedo_np)
         cv2.imshow("Image and Depth Map", combined_image)

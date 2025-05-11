@@ -52,7 +52,7 @@ class SGLVRenderer(nn.Module):
         lamb = F.grid_sample(SGLV[7:8, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
         s = F.grid_sample(SGLV[8:, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
         # 累积不透明度
-        transmittance = torch.cumprod(1 - alpha + 1e-10, dim=2)
+        transmittance = torch.cumprod(1 - alpha, dim=2)
         weights = alpha * transmittance
         # 累积颜色
         accumulated_color = torch.sum(weights.unsqueeze(0) * c, dim=3)
@@ -63,36 +63,6 @@ class SGLVRenderer(nn.Module):
         # 计算环境贴图
         accumulated_s_dot_dir = torch.einsum('ijk, ijk->ij', ray_directions, accumulated_s.permute(1, 2, 0))
         envmap = accumulated_color + accumulated_w * torch.exp(accumulated_lamb * (accumulated_s_dot_dir - 1))
-
-        # for i in range(t0.shape[0]):
-        #     for j in range(t0.shape[1]):
-        #         t_values = torch.linspace(t0[i][j], t1[i][j], steps=100).unsqueeze(1)  # 100 个采样点
-        #         points = ray_origin.unsqueeze(0) + t_values * ray_directions[i][j].unsqueeze(0)
-
-        #         # 将点坐标归一化
-        #         points = (points - voxel_range[0]) / (voxel_range[1] - voxel_range[0]) * 2 - 1
-        #         points = points.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-
-        #         # 三线性插值
-        #         c = F.grid_sample(SGLV[:3, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-        #         alpha = F.grid_sample(SGLV[3:4, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-        #         w = F.grid_sample(SGLV[4:7, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-        #         lamb = F.grid_sample(SGLV[7:8, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-        #         s = F.grid_sample(SGLV[8:, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-
-        #         # 累积不透明度
-        #         transmittance = torch.cumprod(1 - alpha + 1e-10, dim=0)
-        #         weights = alpha * transmittance
-
-        #         # 累积颜色
-        #         accumulated_color = torch.sum(weights.unsqueeze(0) * c, dim=1)
-
-        #         # 累积球面高斯参数
-        #         accumulated_w = torch.sum(weights.unsqueeze(0) * w, dim=1)
-        #         accumulated_lamb = torch.sum(weights * lamb)
-        #         accumulated_s = torch.sum(weights.unsqueeze(0) * s, dim=1)
-
-        #         envmap[:, i, j] = accumulated_color + accumulated_w * torch.exp(accumulated_lamb * (torch.dot(accumulated_s, ray_directions[i][j]) - 1))
 
         return envmap
 
@@ -113,7 +83,7 @@ if __name__ == "__main__":
     sglv_renderer = SGLVRenderer()
     origin = torch.tensor([0, 0, 0])
     SGLV = torch.randn(11, 84, 60, 64)
-    voxel_range = [torch.tensor([-5, -5, -5]), torch.tensor([5, 5, 5])]
+    voxel_range = torch.stack([torch.tensor([-5, -5, -5]), torch.tensor([5, 5, 5])])
 
     envmap = sglv_renderer(origin, SGLV, voxel_range)
     envmap_np = envmap.permute(1, 2, 0).numpy()[:, :, ::-1]
