@@ -62,19 +62,19 @@ def visualize_voxel_data(voxel_data, voxel_range):
     for i in range(volume_size_x):
         for j in range(volume_size_y):
             for k in range(volume_size_z):
-                if voxel_data[4, i, j, k] == 0:  # 只保存需要渲染的点
-                    voxel_pos_x = voxel_range[0][0] + i * (voxel_range[1][0] - voxel_range[0][0]) / volume_size_x
-                    voxel_pos_y = voxel_range[0][1] + j * (voxel_range[1][1] - voxel_range[0][1]) / volume_size_y
-                    voxel_pos_z = voxel_range[0][2] + k * (voxel_range[1][2] - voxel_range[0][2]) / volume_size_z
-                    r, g, b = voxel_data[0, i, j, k], voxel_data[1, i, j, k], voxel_data[2, i, j, k]
-                    r = max(0, min(r, 1))
-                    g = max(0, min(g, 1))
-                    b = max(0, min(b, 1))
-                    alpha = voxel_data[3, i, j, k]
+                # if voxel_data[4, i, j, k] == 0:  # 只保存需要渲染的点
+                voxel_pos_x = voxel_range[0][0] + i * (voxel_range[1][0] - voxel_range[0][0]) / volume_size_x
+                voxel_pos_y = voxel_range[0][1] + j * (voxel_range[1][1] - voxel_range[0][1]) / volume_size_y
+                voxel_pos_z = voxel_range[0][2] + k * (voxel_range[1][2] - voxel_range[0][2]) / volume_size_z
+                r, g, b = voxel_data[0, i, j, k], voxel_data[1, i, j, k], voxel_data[2, i, j, k]
+                r = max(0, min(r, 1))
+                g = max(0, min(g, 1))
+                b = max(0, min(b, 1))
+                alpha = voxel_data[3, i, j, k]
 
-                    points.append((voxel_pos_x, voxel_pos_y, voxel_pos_z))
-                    colors.append((r, g, b))
-                    alphas.append(alpha)
+                points.append((voxel_pos_x, voxel_pos_y, voxel_pos_z))
+                colors.append((r, g, b))
+                alphas.append(alpha)
 
     with open("voxel.ply", 'w') as f:
         # PLY 文件头部

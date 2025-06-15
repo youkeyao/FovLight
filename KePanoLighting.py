@@ -172,6 +172,7 @@ class KePanoLighting(Dataset):
         lighting_x = int(self.map_x[yindex, xindex] / self.pano_w * self.probes_w)
         lighting_y = int(self.map_y[yindex, xindex] / self.pano_h * self.probes_h)
         light = light[:, :, :, lighting_y, lighting_x]
+        light = tonemapper(light)
 
         one_path = one_path.replace('LightProbeData','CubemapData').replace('KePanoLight','KePanoData')
 
@@ -185,12 +186,14 @@ class KePanoLighting(Dataset):
         image = image * torch.pow(torch.tensor(2.0),random_exposure)
         image = tonemapper(image,mode=1)    # ACES tonemapping
 
-        albedo = cv2.imread(os.path.join(one_path,str(iindex)+'_albedo.hdr'),-1)[:,:,0:3]
+        # albedo = cv2.imread(os.path.join(one_path,str(iindex)+'_albedo.hdr'),-1)[:,:,0:3]
+        albedo = cv2.imread(os.path.join(one_path,str(iindex)+'_image.hdr'),-1)[:,:,0:3]
         albedo = cv2.resize(albedo,(self.pano_w,self.pano_h))
         albedo = np.asarray(albedo,dtype=np.float32)
         albedo = albedo[...,::-1].copy()
         albedo = torch.from_numpy(albedo)
         albedo = albedo.permute(2,0,1)
+        albedo = tonemapper(albedo)
 
         roughness = cv2.imread(os.path.join(one_path,str(iindex)+'_roughness.hdr'),-1)[:,:,0:1]
         roughness = cv2.resize(roughness,(self.pano_w,self.pano_h))
@@ -233,15 +236,11 @@ class KePanoLighting(Dataset):
         batchDict = {
             'image':image,
             'albedo':albedo,
-            'normal':normal,
-            'roughness':roughness,
-            'metallic':metallic,
             'depth':depth,
-            'depth_mask':depth_mask,
-            'mask':mask,
             'lighting':light,
             'lighting_x':xindex,
             'lighting_y':yindex,
+            'uv':torch.tensor([2 * (xindex / self.out_w) - 1, -2 * (yindex / self.out_h) + 1]),
             'name':name
         }
         
@@ -265,9 +264,11 @@ class KePanoLighting(Dataset):
             depth = np.asarray(depth,dtype=np.float32)
             depth = cv2.remap(depth, self.map_x, self.map_y, cv2.INTER_LINEAR)
             depth *= self.z_rot
-            if np.max(depth) > 10 or np.min(depth) < 0.5:
+            if np.max(depth) > 9 or np.min(depth) < 0.4:
                 continue
             depth /= np.max(depth)
+            if np.var(depth) < 0.01:
+                continue
             # -----------------------------------------------
             items = os.listdir(whole_path)
             if (len(items)) != 1:
@@ -284,6 +285,7 @@ class KePanoLighting(Dataset):
                         all_item.append(one_item)
         return all_item
 
+# Example usage
 if __name__ == "__main__":
     dataset = KePanoLighting(root='/mnt/data/youkeyao/Datasets/FutureHouse/KePanoLight')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)

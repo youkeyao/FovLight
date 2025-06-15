@@ -17,9 +17,9 @@ class SGLVRenderer(nn.Module):
         phi = 2 * torch.pi * u_grid / self.resolution[1]
         theta = torch.pi * v_grid / self.resolution[0]
         # 计算笛卡尔坐标方向向量
-        x = torch.sin(theta) * torch.cos(phi)
+        x = torch.sin(theta) * torch.sin(phi)
         y = torch.cos(theta)
-        z = torch.sin(theta) * torch.sin(phi)
+        z = torch.sin(theta) * torch.cos(phi)
         # 方向向量并归一化
         directions = torch.stack([x, y, z], dim=-1)
         directions = F.normalize(directions, p=2, dim=-1)
@@ -44,7 +44,7 @@ class SGLVRenderer(nn.Module):
         points = ray_origin_expanded + t_values.unsqueeze(-1) * ray_directions_expanded
         # 归一化点坐标
         points = (points - voxel_range[0]) / (voxel_range[1] - voxel_range[0]) * 2 - 1
-        points = points.unsqueeze(0)
+        points = points[..., [2,1,0]].unsqueeze(0)
         # 三线性插值
         c = F.grid_sample(SGLV[:3, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
         alpha = F.grid_sample(SGLV[3:4, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
@@ -62,7 +62,7 @@ class SGLVRenderer(nn.Module):
         accumulated_s = torch.sum(weights.unsqueeze(0) * s, dim=3)
         # 计算环境贴图
         accumulated_s_dot_dir = torch.einsum('ijk, ijk->ij', ray_directions, accumulated_s.permute(1, 2, 0))
-        envmap = accumulated_color + accumulated_w * torch.exp(accumulated_lamb * (accumulated_s_dot_dir - 1))
+        envmap = accumulated_color
 
         return envmap
 

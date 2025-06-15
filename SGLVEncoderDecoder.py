@@ -81,10 +81,10 @@ class SGLVEncoderDecoder(nn.Module):
         # features = features.view(1, 256, 84, 60, 64)
         x = self.decoder(features) + x
         # 各参数预测
-        color = self.color_head(x) * (Ve + 1)
-        alpha = self.alpha_head(x) * (Ve + 1)
-        w = self.w_head(x) * (Ve + 1)
-        lamda = self.lamda_head(x) * (Ve + 1)
-        s = self.s_head(x) * (Ve + 1)
+        color = self.color_head(x)
+        alpha = self.alpha_head(x)
+        w = self.w_head(x)
+        lamda = self.lamda_head(x)
+        s = self.s_head(x)
         s = F.normalize(s, p=2, dim=1)
         return torch.cat([color, alpha, w, lamda, s], dim=1).squeeze(0)

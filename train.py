@@ -32,7 +32,7 @@ def load_checkpoint(model, optimizer, load_dir, device):
     if not checkpoint_files:
         print(f"No checkpoints found in {load_dir}")
         return 0
-    
+
     # 获取最新的检查点文件
     checkpoint_epochs = [int(f.split('_')[-1].split('.')[0]) for f in checkpoint_files]
     latest_epoch = max(checkpoint_epochs)
@@ -55,6 +55,7 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, device):
         lighting = batch['lighting'][0].to(device)
         lighting_x = batch['lighting_x'][0]
         lighting_y = batch['lighting_y'][0]
+        uv = batch['uv'][0]
 
         # 计算3D坐标
         fx = projection_matrix[0, 0]
@@ -62,10 +63,10 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, device):
         cx = projection_matrix[0, 2]
         cy = projection_matrix[1, 2]
         Z = depth[:, lighting_y, lighting_x]
-        X = (lighting_x - cx) * Z / fx
-        Y = (lighting_y - cy) * Z / fy
+        X = (uv[0] - cx) * Z / fx
+        Y = (uv[1] - cy) * Z / fy
         origin = torch.stack([X, Y, -Z], dim=-1)
-        
+
         optimizer.zero_grad()
         output = model(origin, projection_matrix, image, depth)
         loss = criterion(output, lighting)
@@ -86,6 +87,7 @@ def validate(model, projection_matrix, val_loader, criterion, device):
             lighting = batch['lighting'][0].to(device)
             lighting_x = batch['lighting_x'][0]
             lighting_y = batch['lighting_y'][0]
+            uv = batch['uv'][0]
 
             # 计算3D坐标
             fx = projection_matrix[0, 0]
@@ -93,8 +95,8 @@ def validate(model, projection_matrix, val_loader, criterion, device):
             cx = projection_matrix[0, 2]
             cy = projection_matrix[1, 2]
             Z = depth[:, lighting_y, lighting_x]
-            X = (lighting_x - cx) * Z / fx
-            Y = (lighting_y - cy) * Z / fy
+            X = (uv[0] - cx) * Z / fx
+            Y = (uv[1] - cy) * Z / fy
             origin = torch.stack([X, Y, -Z], dim=-1)
 
             output = model(origin, projection_matrix, image, depth)
