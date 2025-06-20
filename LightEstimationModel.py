@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils import get_free_gpu, create_projection_matrix, visualize_voxel_data
-from KePanoLighting import KePanoLighting
+from LightEnvDatasets import LightEnvDatasets
 from SGLVEncoderDecoder import SGLVEncoderDecoder
 from SGLVRenderer import SGLVRenderer
 
@@ -153,54 +153,38 @@ class LightingEstimationModel(nn.Module):
         self.volume[4] = e_channel
 
 if __name__ == "__main__":
-    selected_gpu = 2
+    selected_gpu = 0
     device = torch.device("cpu" if selected_gpu is None else f"cuda:{selected_gpu}")
     print(f"Using device: {device}")
     # 推理
     model = LightingEstimationModel().to(device)
-    # model.load_state_dict(torch.load("checkpoints/model_checkpoint_28.pth", map_location=device)['model_state_dict'])
-    projection_matrix = create_projection_matrix(57.9516, 640/480, 0.1, 10)
-    dataset = KePanoLighting(root='/mnt/data/youkeyao/Datasets/FutureHouse/KePanoLight')
+    # model.load_state_dict(torch.load("checkpoints/model_checkpoint_90.pth", map_location=device)['model_state_dict'])
+    projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
+    dataset = LightEnvDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:
         image = batch['image'][0]
-        albedo = batch['albedo'][0]
         depth = batch['depth'][0]
         lighting = batch['lighting'][0]
-        lighting_x = batch['lighting_x'][0]
-        lighting_y = batch['lighting_y'][0]
-        uv = batch['uv'][0]
-
-        # 计算3D坐标
-        fx = projection_matrix[0, 0]
-        fy = projection_matrix[1, 1]
-        cx = projection_matrix[0, 2]
-        cy = projection_matrix[1, 2]
-        Z = depth[:, lighting_y, lighting_x]
-        X = (uv[0] - cx) * Z / fx
-        Y = (uv[1] - cy) * Z / fy
-        origin = torch.stack([X, Y, -Z], dim=-1)
+        pos = batch["pos"][0]
 
         image_np = image.permute(1, 2, 0).numpy()[:, :, ::-1]
-        albedo_np = albedo.permute(1, 2, 0).numpy()[:, :, ::-1]
         depth_np = depth.repeat(3, 1, 1).permute(1, 2, 0).numpy()[:, :, ::-1]
         depth_np /= np.max(depth_np)
         combined_image = np.hstack((image_np, depth_np))
         lighting_np = lighting.permute(1, 2, 0).numpy()[:, :, ::-1]
-        cv2.imshow("Albedo", albedo_np)
         cv2.imshow("Image and Depth Map", combined_image)
         cv2.imshow("Lighting map", lighting_np)
-        print(lighting_x, lighting_y)
-        print(origin)
+        print(pos)
         cv2.waitKey(0)
         print("Start")
 
         start_time = time.time()
-        envmap = model(origin, projection_matrix, image, depth)
+        envmap = model(pos, projection_matrix, image, depth)
         end_time = time.time()
         print(f"代码执行时间：{end_time - start_time} 秒")
-        # visualize_voxel_data(model.sglv_volume, model.voxel_range)
+        # visualize_voxel_data(model.volume, model.voxel_range)
         print("End")
 
         envmap_np = envmap.permute(1, 2, 0).detach().cpu().numpy()[:, :, ::-1]

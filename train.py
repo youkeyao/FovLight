@@ -2,7 +2,7 @@ import os
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
-from KePanoLighting import KePanoLighting
+from LightEnvDatasets import LightEnvDatasets
 from LightEstimationModel import LightingEstimationModel
 from utils import get_free_gpu, create_projection_matrix
 
@@ -53,22 +53,10 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, device):
         image = batch['image'][0].to(device)
         depth = batch['depth'][0].to(device)
         lighting = batch['lighting'][0].to(device)
-        lighting_x = batch['lighting_x'][0]
-        lighting_y = batch['lighting_y'][0]
-        uv = batch['uv'][0]
-
-        # 计算3D坐标
-        fx = projection_matrix[0, 0]
-        fy = projection_matrix[1, 1]
-        cx = projection_matrix[0, 2]
-        cy = projection_matrix[1, 2]
-        Z = depth[:, lighting_y, lighting_x]
-        X = (uv[0] - cx) * Z / fx
-        Y = (uv[1] - cy) * Z / fy
-        origin = torch.stack([X, Y, -Z], dim=-1)
+        pos = batch["pos"][0].to(device)
 
         optimizer.zero_grad()
-        output = model(origin, projection_matrix, image, depth)
+        output = model(pos, projection_matrix, image, depth)
         loss = criterion(output, lighting)
         loss.backward()
         optimizer.step()
@@ -85,28 +73,16 @@ def validate(model, projection_matrix, val_loader, criterion, device):
             image = batch['image'][0].to(device)
             depth = batch['depth'][0].to(device)
             lighting = batch['lighting'][0].to(device)
-            lighting_x = batch['lighting_x'][0]
-            lighting_y = batch['lighting_y'][0]
-            uv = batch['uv'][0]
+            pos = batch["pos"][0].to(device)
 
-            # 计算3D坐标
-            fx = projection_matrix[0, 0]
-            fy = projection_matrix[1, 1]
-            cx = projection_matrix[0, 2]
-            cy = projection_matrix[1, 2]
-            Z = depth[:, lighting_y, lighting_x]
-            X = (uv[0] - cx) * Z / fx
-            Y = (uv[1] - cy) * Z / fy
-            origin = torch.stack([X, Y, -Z], dim=-1)
-
-            output = model(origin, projection_matrix, image, depth)
+            output = model(pos, projection_matrix, image, depth)
             loss = criterion(output, lighting)
             total_loss += loss.item()
     return total_loss / len(val_loader)
 
 if __name__ == "__main__":
     batch_size = 1
-    learning_rate = 5e-4
+    learning_rate = 1e-4
     val_split = 0.2
     num_epochs = 500
     checkpoint_dir = './checkpoints'
@@ -129,14 +105,16 @@ if __name__ == "__main__":
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], output_device=device)
     criterion = LogL2Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    projection_matrix = create_projection_matrix(57.9516, 640/480, 0.1, 100)
+    projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
     # 创建数据集
-    dataset = KePanoLighting(root='/mnt/data/youkeyao/Datasets/FutureHouse/KePanoLight')
+    dataset = LightEnvDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     # 划分训练集和验证集
     dataset_size = len(dataset)
-    val_size = int(val_split * dataset_size)
-    train_size = dataset_size - val_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    # val_size = int(val_split * dataset_size)
+    # train_size = dataset_size - val_size
+    # train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    train_dataset = dataset
+    val_dataset = dataset
     # 创建数据加载器
     if multi_gpu:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)

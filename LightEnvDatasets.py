@@ -62,7 +62,7 @@ class LightEnvDatasets(Dataset):
         depth = cv2.imread(depth_path,-1)[:, :, 0:1].astype(np.float32)
 
         # Load lighting environment map
-        lighting = cv2.imread(lighting_path,-1)[:, :, ::-1].astype(np.float32)
+        lighting = cv2.imread(lighting_path,-1)[:, :, 0:3][:, :, ::-1].astype(np.float32)
 
         # Create a sample dictionary
         # image: channel, height, width
