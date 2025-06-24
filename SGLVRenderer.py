@@ -46,20 +46,20 @@ class SGLVRenderer(nn.Module):
         points = (points - voxel_range[0]) / (voxel_range[1] - voxel_range[0]) * 2 - 1
         points = points[..., [2,1,0]].unsqueeze(0)
         # 三线性插值
-        c = F.grid_sample(SGLV[:3, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-        alpha = F.grid_sample(SGLV[3:4, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-        w = F.grid_sample(SGLV[4:7, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-        lamb = F.grid_sample(SGLV[7:8, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
-        s = F.grid_sample(SGLV[8:, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze()
+        c = F.grid_sample(SGLV[:3, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze(0)
+        alpha = F.grid_sample(SGLV[3:4, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze(0)
+        w = F.grid_sample(SGLV[4:7, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze(0)
+        lamb = F.grid_sample(SGLV[7:8, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze(0)
+        s = F.grid_sample(SGLV[8:, ...].unsqueeze(0), points, mode='bilinear', align_corners=True).squeeze(0)
         # 累积不透明度
-        transmittance = torch.cumprod(1 - alpha, dim=2)
+        transmittance = torch.cumprod(1 - alpha, dim=3)
         weights = alpha * transmittance
         # 累积颜色
-        accumulated_color = torch.sum(weights.unsqueeze(0) * c, dim=3)
+        accumulated_color = torch.sum(weights * c, dim=3)
         # 累积球面高斯参数
-        accumulated_w = torch.sum(weights.unsqueeze(0) * w, dim=3)
+        accumulated_w = torch.sum(weights * w, dim=3)
         accumulated_lamb = torch.sum(weights * lamb, dim=2)
-        accumulated_s = torch.sum(weights.unsqueeze(0) * s, dim=3)
+        accumulated_s = torch.sum(weights * s, dim=3)
         # 计算环境贴图
         accumulated_s_dot_dir = torch.einsum('ijk, ijk->ij', ray_directions, accumulated_s.permute(1, 2, 0))
         envmap = accumulated_color

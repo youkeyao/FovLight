@@ -106,7 +106,7 @@ def validate(model, projection_matrix, val_loader, criterion, device):
 
 if __name__ == "__main__":
     batch_size = 1
-    learning_rate = 5e-4
+    learning_rate = 1e-4
     val_split = 0.2
     num_epochs = 500
     checkpoint_dir = './checkpoints'
