@@ -38,8 +38,8 @@ def create_projection_matrix(fov_deg, aspect_ratio, near, far):
     # 创建投影矩阵
     proj_matrix = torch.zeros((4, 4), dtype=torch.float32)
     
-    proj_matrix[0, 0] = f / aspect_ratio
-    proj_matrix[1, 1] = f
+    proj_matrix[0, 0] = f
+    proj_matrix[1, 1] = f * aspect_ratio
     proj_matrix[2, 2] = -(far + near) / (far - near)
     proj_matrix[2, 3] = -2 * far * near / (far - near)
     proj_matrix[3, 2] = -1.0

@@ -57,9 +57,11 @@ class LightEnvDatasets(Dataset):
 
         # Load image
         image = cv2.imread(image_path)[:, :, ::-1].astype(np.float32) / 255
+        image = cv2.resize(image, (160, 120))
 
         # Load depth
         depth = cv2.imread(depth_path,-1)[:, :, 0:1].astype(np.float32)
+        depth = cv2.resize(depth, (160, 120)).reshape(120, 160, 1)
 
         # Load lighting environment map
         lighting = cv2.imread(lighting_path,-1)[:, :, 0:3][:, :, ::-1].astype(np.float32)
@@ -89,7 +91,7 @@ if __name__ == "__main__":
         pos = batch["pos"][0]
 
         image_np = image.permute(1, 2, 0).numpy()[:, :, ::-1]
-        depth_np = depth.repeat(3, 1, 1).permute(1, 2, 0).numpy()[:, :, ::-1]
+        depth_np = depth.repeat(3, 1, 1).permute(1, 2, 0).numpy()
         depth_np /= np.max(depth_np)
         combined_image = np.hstack((image_np, depth_np))
         lighting_np = lighting.permute(1, 2, 0).numpy()[:, :, ::-1]

@@ -3,24 +3,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class SGLVRenderer(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.resolution = (160, 320)
+class SGLVRenderer():
+    def __init__(self, resolution=(160, 320)):
+        self.resolution = resolution
         self.sample_num = 100
 
-    def forward(self, origin, SGLV, voxel_range):
+    def render(self, origin, SGLV, voxel_range):
         # 生成像素坐标网格
         v_coords = torch.arange(self.resolution[0], device=SGLV.device)
         u_coords = torch.arange(self.resolution[1], device=SGLV.device)
         v_grid, u_grid = torch.meshgrid(v_coords, u_coords, indexing='ij')
         # 计算球面坐标
-        phi = 2 * torch.pi * u_grid / self.resolution[1]
-        theta = torch.pi * v_grid / self.resolution[0]
+        theta = 2 * torch.pi * u_grid / self.resolution[1]
+        phi = torch.pi * v_grid / self.resolution[0]
         # 计算笛卡尔坐标方向向量
-        x = torch.sin(theta) * torch.cos(phi)
-        y = torch.cos(theta)
-        z = torch.sin(theta) * torch.sin(phi)
+        x = torch.sin(phi) * torch.cos(theta)
+        y = torch.cos(phi)
+        z = torch.sin(phi) * torch.sin(theta)
         # 方向向量并归一化
         directions = torch.stack([x, y, z], dim=-1)
         # 采样体积并分配到环境贴图
@@ -85,7 +84,7 @@ if __name__ == "__main__":
     SGLV = torch.randn(11, 84, 60, 64)
     voxel_range = torch.stack([torch.tensor([-5, -5, -5]), torch.tensor([5, 5, 5])])
 
-    envmap = sglv_renderer(origin, SGLV, voxel_range)
+    envmap = sglv_renderer.render(origin, SGLV, voxel_range)
     envmap_np = envmap.permute(1, 2, 0).numpy()[:, :, ::-1]
     cv2.imshow("envmap", envmap_np)
     cv2.waitKey(0)

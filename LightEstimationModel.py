@@ -8,6 +8,7 @@ from utils import get_free_gpu, create_projection_matrix, visualize_voxel_data
 from LightEnvDatasets import LightEnvDatasets
 from SGLVEncoderDecoder import SGLVEncoderDecoder
 from SGLVRenderer import SGLVRenderer
+from DetailedRenderer import DetailedRenderer
 
 # 混合网络
 class BlendingNetwork(nn.Module):
@@ -41,7 +42,8 @@ class LightingEstimationModel(nn.Module):
         super().__init__()
 
         self.voxel_range = [torch.tensor([-5, -5, -5]), torch.tensor([5, 5, 5])]
-        self.voxel_resolution = (84, 60, 64)
+        self.voxel_resolution = (168, 120, 128)
+        self.output_resolution = (160, 320)
 
         # c, a, e
         self.register_buffer('volume', torch.randn(5, *self.voxel_resolution))
@@ -49,6 +51,7 @@ class LightingEstimationModel(nn.Module):
 
         self.sglv_encoder_decoder = SGLVEncoderDecoder()
         self.sglv_renderer = SGLVRenderer()
+        # self.detailed_rednerer = DetailedRenderer()
         # self.blending_network = BlendingNetwork()
         # self.sglv = SGLV()
         # self.renderer = MonteCarloRenderer()
@@ -58,7 +61,8 @@ class LightingEstimationModel(nn.Module):
         # 单图像输入
         self.initialize_volume(camera_matrix, input_image, depth_map)
         self.sglv_volume = self.sglv_encoder_decoder(self.volume)
-        envmap = self.sglv_renderer(origin, self.sglv_volume, self.voxel_range)
+        envmap = self.sglv_renderer.render(origin, self.sglv_volume, self.voxel_range)
+        # detailed_envmap = self.detailed_rednerer.render(origin, camera_matrix, input_image, depth_map)
         # blended_env = self.blending_network(sglv_prediction, input_image, depth_map)
         # rendered_sphere = self.renderer(blended_env)
         # return blended_env, rendered_sphere
@@ -158,7 +162,7 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     # 推理
     model = LightingEstimationModel().to(device)
-    # model.load_state_dict(torch.load("checkpoints/model_checkpoint_90.pth", map_location=device)['model_state_dict'])
+    model.load_state_dict(torch.load("checkpoints_new/model_checkpoint_1000.pth", map_location=device, weights_only=True)['model_state_dict'])
     projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
     dataset = LightEnvDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
@@ -189,6 +193,7 @@ if __name__ == "__main__":
 
         envmap_np = envmap.permute(1, 2, 0).detach().cpu().numpy()[:, :, ::-1]
         cv2.imshow("envmap", envmap_np)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        break
+        key = cv2.waitKey(0) & 0xFF
+        if key == ord('q'):
+            break
+    cv2.destroyAllWindows()

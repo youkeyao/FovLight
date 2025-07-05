@@ -84,9 +84,9 @@ if __name__ == "__main__":
     batch_size = 1
     learning_rate = 1e-4
     val_split = 0.2
-    num_epochs = 500
+    num_epochs = 1000
     checkpoint_dir = './checkpoints'
-    multi_gpu = True
+    multi_gpu = False
     # 创建检查点目录
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
@@ -110,11 +110,9 @@ if __name__ == "__main__":
     dataset = LightEnvDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     # 划分训练集和验证集
     dataset_size = len(dataset)
-    # val_size = int(val_split * dataset_size)
-    # train_size = dataset_size - val_size
-    # train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-    train_dataset = dataset
-    val_dataset = dataset
+    val_size = int(val_split * dataset_size)
+    train_size = dataset_size - val_size
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
     # 创建数据加载器
     if multi_gpu:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -136,7 +134,7 @@ if __name__ == "__main__":
         print(f'{device} Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
 
         # 保存检查点
-        if (epoch+1) % 1 == 0:
+        if (epoch+1) % 10 == 0:
             if multi_gpu:
                 if torch.distributed.get_rank() == 0:
                     save_checkpoint(model.module, optimizer, epoch + 1, checkpoint_dir)
