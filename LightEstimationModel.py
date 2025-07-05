@@ -158,7 +158,7 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     # 推理
     model = LightingEstimationModel().to(device)
-    # model.load_state_dict(torch.load("checkpoints/model_checkpoint_28.pth", map_location=device)['model_state_dict'])
+    # model.load_state_dict(torch.load("checkpoints_old/model_checkpoint_110.pth", weights_only=True, map_location=device)['model_state_dict'])
     projection_matrix = create_projection_matrix(57.9516, 640/480, 0.1, 10)
     dataset = KePanoLighting(root='/mnt/data/youkeyao/Datasets/FutureHouse/KePanoLight')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
