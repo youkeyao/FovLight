@@ -2,8 +2,9 @@ import os
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
-from LightEnvDatasets import LightEnvDatasets
+from EnvMapDatasets import EnvMapDatasets
 from LightEstimationModel import LightingEstimationModel
+from ObjectRenderer import ObjectRenderer
 from utils import get_free_gpu, create_projection_matrix
 
 class LogL2Loss(torch.nn.Module):
@@ -39,7 +40,7 @@ def load_checkpoint(model, optimizer, load_dir, device):
     latest_checkpoint_file = f"model_checkpoint_{latest_epoch}.pth"
     load_path = os.path.join(load_dir, latest_checkpoint_file)
 
-    checkpoint = torch.load(load_path, map_location=device)
+    checkpoint = torch.load(load_path, weights_only=True, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     print(f"Loaded checkpoint from {load_path}")
@@ -49,6 +50,7 @@ def load_checkpoint(model, optimizer, load_dir, device):
 def train(model, projection_matrix, train_loader, criterion, optimizer, device):
     model.train()
     total_loss = 0
+    object_renderer = ObjectRenderer((256, 256))
     for batch in train_loader:
         image = batch['image'][0].to(device)
         depth = batch['depth'][0].to(device)
@@ -57,7 +59,7 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, device):
 
         optimizer.zero_grad()
         output = model(pos, projection_matrix, image, depth)
-        loss = criterion(output, lighting)
+        loss = criterion(output, lighting) + criterion(object_renderer.render(pos, output), object_renderer.render(pos, lighting))
         loss.backward()
         optimizer.step()
         
@@ -68,6 +70,7 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, device):
 def validate(model, projection_matrix, val_loader, criterion, device):
     model.eval()
     total_loss = 0
+    object_renderer = ObjectRenderer((256, 256))
     with torch.no_grad():
         for batch in val_loader:
             image = batch['image'][0].to(device)
@@ -76,7 +79,7 @@ def validate(model, projection_matrix, val_loader, criterion, device):
             pos = batch["pos"][0].to(device)
 
             output = model(pos, projection_matrix, image, depth)
-            loss = criterion(output, lighting)
+            loss = criterion(output, lighting) + criterion(object_renderer.render(pos, output), object_renderer.render(pos, lighting))
             total_loss += loss.item()
     return total_loss / len(val_loader)
 
@@ -85,7 +88,7 @@ if __name__ == "__main__":
     learning_rate = 1e-4
     val_split = 0.2
     num_epochs = 1000
-    checkpoint_dir = './checkpoints'
+    checkpoint_dir = './checkpoints_new'
     multi_gpu = False
     # 创建检查点目录
     if not os.path.exists(checkpoint_dir):
@@ -105,14 +108,16 @@ if __name__ == "__main__":
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], output_device=device)
     criterion = LogL2Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
+    projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20).to(device)
     # 创建数据集
-    dataset = LightEnvDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     # 划分训练集和验证集
     dataset_size = len(dataset)
-    val_size = int(val_split * dataset_size)
-    train_size = dataset_size - val_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    # val_size = int(val_split * dataset_size)
+    # train_size = dataset_size - val_size
+    # train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    train_dataset = dataset
+    val_dataset = dataset
     # 创建数据加载器
     if multi_gpu:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -134,7 +139,7 @@ if __name__ == "__main__":
         print(f'{device} Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
 
         # 保存检查点
-        if (epoch+1) % 10 == 0:
+        if (epoch+1) % 100 == 0:
             if multi_gpu:
                 if torch.distributed.get_rank() == 0:
                     save_checkpoint(model.module, optimizer, epoch + 1, checkpoint_dir)

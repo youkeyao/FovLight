@@ -5,36 +5,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils import get_free_gpu, create_projection_matrix, visualize_voxel_data
-from LightEnvDatasets import LightEnvDatasets
+from EnvMapDatasets import EnvMapDatasets
 from SGLVEncoderDecoder import SGLVEncoderDecoder
 from SGLVRenderer import SGLVRenderer
 from DetailedRenderer import DetailedRenderer
-
-# 混合网络
-class BlendingNetwork(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Conv2d(6, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU()
-        )
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.Conv2d(32, 1, kernel_size=3, padding=1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, hdr_env, ldr_env, mask, depth_panorama):
-        x = torch.cat([hdr_env, ldr_env, mask, depth_panorama], dim=1)
-        features = self.encoder(x)
-        blend_weight = self.decoder(features)
-        return blend_weight
+from BlendingNetwork import BlendingNetwork
 
 # 主模型
 class LightingEstimationModel(nn.Module):
@@ -50,10 +25,10 @@ class LightingEstimationModel(nn.Module):
         self.register_buffer('sglv_volume', torch.randn(11, *self.voxel_resolution))
 
         self.sglv_encoder_decoder = SGLVEncoderDecoder()
+        self.sglv_encoder_decoder.requires_grad_(False)
         self.sglv_renderer = SGLVRenderer()
-        # self.detailed_rednerer = DetailedRenderer()
-        # self.blending_network = BlendingNetwork()
-        # self.sglv = SGLV()
+        self.detailed_rednerer = DetailedRenderer()
+        self.blending_network = BlendingNetwork()
         # self.renderer = MonteCarloRenderer()
         # self.sgru = SGGRU(input_channels=128, hidden_channels=128)
 
@@ -62,11 +37,12 @@ class LightingEstimationModel(nn.Module):
         self.initialize_volume(camera_matrix, input_image, depth_map)
         self.sglv_volume = self.sglv_encoder_decoder(self.volume)
         envmap = self.sglv_renderer.render(origin, self.sglv_volume, self.voxel_range)
-        # detailed_envmap = self.detailed_rednerer.render(origin, camera_matrix, input_image, depth_map)
-        # blended_env = self.blending_network(sglv_prediction, input_image, depth_map)
+        detailed_envmap = self.detailed_rednerer.render(origin, camera_matrix, input_image, depth_map)
+        mask = (detailed_envmap > 0).any(dim=0, keepdim=True).float().to(detailed_envmap.device)
+        blended_env = self.blending_network(envmap, detailed_envmap, mask)
         # rendered_sphere = self.renderer(blended_env)
         # return blended_env, rendered_sphere
-        return envmap
+        return blended_env
 
     def initialize_volume(self, camera_matrix, input_image, depth_map):
         device = self.volume.device  # 统一设备管理
@@ -97,7 +73,6 @@ class LightingEstimationModel(nn.Module):
         ], dim=1)
         
         # --- 4. 投影计算优化 ---
-        camera_matrix = camera_matrix.to(device)  # 确保矩阵在正确设备
         proj_pos = torch.matmul(points, camera_matrix.T)
         proj_pos = proj_pos / proj_pos[:, 2:3]  # 透视除法
         
@@ -110,7 +85,7 @@ class LightingEstimationModel(nn.Module):
         # --- 6. 采样优化 ---
         grid_sample = uv_normalized.view(1, 1, -1, 2)  # 直接使用归一化坐标
         input_color = F.grid_sample(
-            input_image.unsqueeze(0).to(device),
+            input_image.unsqueeze(0),
             grid_sample,
             mode='bilinear',
             padding_mode='zeros',
@@ -118,7 +93,7 @@ class LightingEstimationModel(nn.Module):
         ).squeeze().view(3, *self.voxel_resolution)
         
         input_depth = F.grid_sample(
-            depth_map.unsqueeze(0).to(device),
+            depth_map.unsqueeze(0),
             grid_sample,
             mode='bilinear',
             padding_mode='zeros',
@@ -162,9 +137,9 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     # 推理
     model = LightingEstimationModel().to(device)
-    model.load_state_dict(torch.load("checkpoints_new/model_checkpoint_1000.pth", map_location=device, weights_only=True)['model_state_dict'])
+    model.load_state_dict(torch.load("checkpoints_new/model_checkpoint_2000.pth", map_location=device, weights_only=True)['model_state_dict'])
     projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
-    dataset = LightEnvDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:
@@ -185,7 +160,7 @@ if __name__ == "__main__":
         print("Start")
 
         start_time = time.time()
-        envmap = model(pos, projection_matrix, image, depth)
+        envmap = model(pos.to(device), projection_matrix.to(device), image.to(device), depth.to(device))
         end_time = time.time()
         print(f"代码执行时间：{end_time - start_time} 秒")
         # visualize_voxel_data(model.volume, model.voxel_range)

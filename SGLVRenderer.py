@@ -17,9 +17,9 @@ class SGLVRenderer():
         theta = 2 * torch.pi * u_grid / self.resolution[1]
         phi = torch.pi * v_grid / self.resolution[0]
         # 计算笛卡尔坐标方向向量
-        x = torch.sin(phi) * torch.cos(theta)
+        x = torch.sin(phi) * torch.sin(theta)
         y = torch.cos(phi)
-        z = torch.sin(phi) * torch.sin(theta)
+        z = -torch.sin(phi) * torch.cos(theta)
         # 方向向量并归一化
         directions = torch.stack([x, y, z], dim=-1)
         # 采样体积并分配到环境贴图

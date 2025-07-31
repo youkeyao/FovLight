@@ -14,30 +14,8 @@ from pytorch3d.renderer import (
     MeshRasterizer,
     HardFlatShader,
 )
-from LightEnvDatasets import LightEnvDatasets
+from EnvMapDatasets import EnvMapDatasets
 from utils import create_projection_matrix
-
-def get_cubemap_uv(x, y, z):
-    """
-    Convert 3D direction to cubemap face and UV coordinates.
-    """
-    abs_x, abs_y, abs_z = abs(x), abs(y), abs(z)
-
-    if abs_x >= abs_y and abs_x >= abs_z:
-        if x > 0:  # Right face
-            return 0, (z / abs_x + 1) / 2, (-y / abs_x + 1) / 2
-        else:  # Left face
-            return 1, (-z / abs_x + 1) / 2, (-y / abs_x + 1) / 2
-    elif abs_y >= abs_x and abs_y >= abs_z:
-        if y > 0:  # Up face
-            return 2, (-x / abs_y + 1) / 2, (z / abs_y + 1) / 2
-        else:  # Down face
-            return 3, (-x / abs_y + 1) / 2, (-z / abs_y + 1) / 2
-    else:
-        if z > 0:  # Front face
-            return 4, (-x / abs_z + 1) / 2, (-y / abs_z + 1) / 2
-        else:  # Back face
-            return 5, (x / abs_z + 1) / 2, (-y / abs_z + 1) / 2
 
 def create_mesh_from_depth(depth_map, camera_matrix, depth_threshold=0.1):
     _, H, W = depth_map.shape
@@ -52,36 +30,36 @@ def create_mesh_from_depth(depth_map, camera_matrix, depth_threshold=0.1):
     vertices = directions * depth_map[0, :, :].unsqueeze(-1)
 
     # Generate triangular faces
-    faces = []
-    for i in range(H - 1):
-        for j in range(W - 1):
-            # Get depth values for current quad
-            d00 = depth_map[0, i, j]
-            d01 = depth_map[0, i, j+1]
-            d10 = depth_map[0, i+1, j]
-            d11 = depth_map[0, i+1, j+1]
-            
-            # Skip invalid depths or large discontinuities
-            if (d00 <= 0 or d01 <= 0 or d10 <= 0 or d11 <= 0 or
-                torch.abs(d00 - d01) > depth_threshold or
-                torch.abs(d00 - d10) > depth_threshold or
-                torch.abs(d00 - d11) > depth_threshold):
-                continue
-            
-            # Vertex indices
-            v00 = i * W + j
-            v01 = i * W + j + 1
-            v10 = (i+1) * W + j
-            v11 = (i+1) * W + j + 1
-            
-            # Create two triangles per quad
-            faces.append([v00, v01, v10])
-            faces.append([v10, v01, v11])
-    
-    if not faces:
+    depth_map_2d = depth_map[0]
+    d00 = depth_map_2d[:-1, :-1]
+    d01 = depth_map_2d[:-1, 1:]
+    d10 = depth_map_2d[1:, :-1]
+    d11 = depth_map_2d[1:, 1:]
+
+    valid_mask = (
+        (d00 > 0) & (d01 > 0) & (d10 > 0) & (d11 > 0) &
+        (torch.abs(d00 - d01) <= depth_threshold) &
+        (torch.abs(d00 - d10) <= depth_threshold) &
+        (torch.abs(d00 - d11) <= depth_threshold)
+    )
+
+    valid_i, valid_j = torch.where(valid_mask)
+    num_valid = valid_i.size(0)
+
+    if num_valid == 0:
         faces = torch.zeros((0, 3), dtype=torch.int64, device=device)
     else:
-        faces = torch.tensor(faces, dtype=torch.int64, device=device)
+        v00 = valid_i * W + valid_j
+        v01 = v00 + 1
+        v10 = (valid_i + 1) * W + valid_j
+        v11 = v10 + 1
+
+        triangles = torch.stack([
+            torch.stack([v00, v01, v10], dim=1),
+            torch.stack([v10, v01, v11], dim=1)
+        ], dim=0)
+
+        faces = triangles.reshape(-1, 3)
     
     # Normalized texture coordinates
     tex_u = (u + 1) / 2
@@ -151,35 +129,120 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
     # Render the scene
     with torch.no_grad():
         images = renderer(mesh)
-        return images
-
+        return images[:, :, :, :3].permute(0, 3, 1, 2)
+    
 def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
     height, width = resolution
-    equirect = torch.zeros((3, height, width), device=cubemap_images.device)
+    device = cubemap_images.device
+    C = cubemap_images.shape[1]
     
-    for y in range(height):
-        for x in range(width):
-            # Convert pixel coordinates to spherical coordinates
-            theta = 2 * np.pi * x / width  # longitude
-            phi = np.pi * y / height   # latitude
-            
-            # Convert spherical to cartesian
-            dx = np.sin(phi) * np.cos(theta)
-            dy = np.cos(phi)
-            dz = np.sin(phi) * np.sin(theta)
-            
-            # Determine which face and UV coordinates
-            face_idx, u, v = get_cubemap_uv(dx, dy, dz)
-            
-            if 0 <= face_idx < 6:
-                face_img = cubemap_images[face_idx, :]
-                face_h, face_w = face_img.shape[:2]
-                
-                # Convert UV to pixel coordinates
-                px = int(u * (face_w - 1))
-                py = int(v * (face_h - 1))
+    # 创建坐标网格 (向量化)
+    y, x = torch.meshgrid(
+        torch.arange(height, dtype=torch.float32, device=device),
+        torch.arange(width, dtype=torch.float32, device=device),
+        indexing='ij'
+    )
+    
+    # 转换为球面坐标
+    theta = 2 * np.pi * x / width  # 经度 [0, 2π]
+    phi = np.pi * y / height      # 纬度 [0, π]
+    
+    # 转换为笛卡尔坐标 (右手坐标系)
+    sin_phi = torch.sin(phi)
+    x_cart = sin_phi * torch.sin(theta)  # X: 右为正
+    y_cart = torch.cos(phi)              # Y: 上为正
+    z_cart = -sin_phi * torch.cos(theta)  # Z: 前为正
+    
+    xyz = torch.stack([x_cart, y_cart, z_cart], dim=-1)  # [H, W, 3]
+    
+    # 计算绝对值和主导轴
+    abs_xyz = torch.abs(xyz)
+    max_val, max_axis = torch.max(abs_xyz, dim=-1)  # [H, W]
+    
+    # 初始化面索引和UV坐标
+    face_idx = torch.full((height, width), -1, dtype=torch.long, device=device)
+    u_map = torch.zeros_like(x_cart)
+    v_map = torch.zeros_like(x_cart)
+    
+    # 计算每个面的UV坐标 (向量化)
+    # 右面 (X+)
+    mask = (max_axis == 0) & (xyz[..., 0] >= 0)
+    if mask.any():
+        scale = torch.reciprocal(xyz[..., 0][mask].abs())
+        u_map[mask] = xyz[..., 2][mask] * scale
+        v_map[mask] = -xyz[..., 1][mask] * scale
+        face_idx[mask] = 0
+    
+    # 左面 (X-)
+    mask = (max_axis == 0) & (xyz[..., 0] < 0)
+    if mask.any():
+        scale = torch.reciprocal(xyz[..., 0][mask].abs())
+        u_map[mask] = -xyz[..., 2][mask] * scale
+        v_map[mask] = -xyz[..., 1][mask] * scale
+        face_idx[mask] = 1
+    
+    # 上面 (Y+)
+    mask = (max_axis == 1) & (xyz[..., 1] >= 0)
+    if mask.any():
+        scale = torch.reciprocal(xyz[..., 1][mask].abs())
+        u_map[mask] = -xyz[..., 0][mask] * scale
+        v_map[mask] = xyz[..., 2][mask] * scale
+        face_idx[mask] = 2
+    
+    # 下面 (Y-)
+    mask = (max_axis == 1) & (xyz[..., 1] < 0)
+    if mask.any():
+        scale = torch.reciprocal(xyz[..., 1][mask].abs())
+        u_map[mask] = -xyz[..., 0][mask] * scale
+        v_map[mask] = -xyz[..., 2][mask] * scale
+        face_idx[mask] = 3
+    
+    # 前面 (Z+)
+    mask = (max_axis == 2) & (xyz[..., 2] >= 0)
+    if mask.any():
+        scale = torch.reciprocal(xyz[..., 2][mask].abs())
+        u_map[mask] = -xyz[..., 0][mask] * scale
+        v_map[mask] = -xyz[..., 1][mask] * scale
+        face_idx[mask] = 4
+    
+    # 后面 (Z-)
+    mask = (max_axis == 2) & (xyz[..., 2] < 0)
+    if mask.any():
+        scale = torch.reciprocal(xyz[..., 2][mask].abs())
+        u_map[mask] = xyz[..., 0][mask] * scale
+        v_map[mask] = -xyz[..., 1][mask] * scale
+        face_idx[mask] = 5
 
-                equirect[:, y, x] = face_img[py, px, :3]
+    # 创建采样网格
+    grid = torch.stack([u_map, v_map], dim=-1)  # [H, W, 2]
+    
+    # 初始化输出等距柱状图
+    equirect = torch.zeros((C, height, width), device=device)
+    
+    # 为每个面采样
+    for face in range(6):
+        mask = (face_idx == face)
+        if not mask.any():
+            continue
+            
+        # 创建当前面的采样网格
+        face_grid = grid.clone()
+        face_grid[~mask] = -2  # 将非当前面的点移出采样范围
+        
+        # 调整网格维度 [H, W, 2] -> [1, H, W, 2]
+        face_grid = face_grid.unsqueeze(0)
+        
+        # 采样当前面
+        sampled = F.grid_sample(
+            cubemap_images[face:face+1],  # [1, C, H_face, W_face]
+            face_grid,
+            mode='bilinear',
+            align_corners=True,
+            padding_mode='zeros'
+        )  # [1, C, H, W]
+        
+        # 更新等距柱状图
+        equirect[:, mask] = sampled[0, :, mask]
     
     return equirect
 
@@ -215,7 +278,7 @@ class DetailedRenderer:
 if __name__ == "__main__":
     detailed_renderer = DetailedRenderer()
     projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
-    dataset = LightEnvDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:

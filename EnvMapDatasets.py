@@ -6,12 +6,13 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-class LightEnvDatasets(Dataset):
+class EnvMapDatasets(Dataset):
     def __init__(self, root_dir):
         """
         Args:
             root_dir (string): Directory with all the data.
         """
+        self.resolution = (160, 120)
         self.root_dir = root_dir
         self.data_paths = self.load_data_paths()
 
@@ -56,15 +57,21 @@ class LightEnvDatasets(Dataset):
         pos = scene_data[3]
 
         # Load image
-        image = cv2.imread(image_path)[:, :, ::-1].astype(np.float32) / 255
-        image = cv2.resize(image, (160, 120))
+        image = cv2.imread(image_path, -1)[:, :, 0:3][:, :, ::-1].astype(np.float32) / 255
+        image = cv2.resize(image, self.resolution)
+        # srgb to linear
+        image = np.where(
+            image <= 0.04045,
+            image / 12.92,
+            ((image + 0.055) / 1.055) ** 2.4
+        )
 
         # Load depth
-        depth = cv2.imread(depth_path,-1)[:, :, 0:1].astype(np.float32)
-        depth = cv2.resize(depth, (160, 120)).reshape(120, 160, 1)
+        depth = cv2.imread(depth_path, -1)[:, :, 0:1].astype(np.float32)
+        depth = cv2.resize(depth, self.resolution).reshape(self.resolution[1], self.resolution[0], 1)
 
         # Load lighting environment map
-        lighting = cv2.imread(lighting_path,-1)[:, :, 0:3][:, :, ::-1].astype(np.float32)
+        lighting = cv2.imread(lighting_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)[:, :, 0:3][:, :, ::-1].astype(np.float32)
 
         # Create a sample dictionary
         # image: channel, height, width
@@ -81,7 +88,7 @@ class LightEnvDatasets(Dataset):
 
 # Example usage
 if __name__ == "__main__":
-    dataset = LightEnvDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:
