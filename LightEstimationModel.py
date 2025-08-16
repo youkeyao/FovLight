@@ -13,36 +13,32 @@ from BlendingNetwork import BlendingNetwork
 
 # 主模型
 class LightingEstimationModel(nn.Module):
-    def __init__(self):
+    def __init__(self, voxel_resolution=(168, 120, 128), output_resolution=(160, 320), sample_num=100, use_full=True):
         super().__init__()
 
         self.voxel_range = [torch.tensor([-5, -5, -5]), torch.tensor([5, 5, 5])]
-        self.voxel_resolution = (168, 120, 128)
-        self.output_resolution = (160, 320)
+        self.voxel_resolution = voxel_resolution
+        self.output_resolution = output_resolution
 
         # c, a, e
         self.register_buffer('volume', torch.randn(5, *self.voxel_resolution))
         self.register_buffer('sglv_volume', torch.randn(11, *self.voxel_resolution))
 
-        self.sglv_encoder_decoder = SGLVEncoderDecoder()
-        self.sglv_encoder_decoder.requires_grad_(False)
-        self.sglv_renderer = SGLVRenderer()
-        self.detailed_rednerer = DetailedRenderer()
-        self.blending_network = BlendingNetwork()
-        # self.renderer = MonteCarloRenderer()
-        # self.sgru = SGGRU(input_channels=128, hidden_channels=128)
+        self.sglv_encoder_decoder = SGLVEncoderDecoder(use_full)
+        self.sglv_renderer = SGLVRenderer(output_resolution, sample_num)
+        self.detailed_rednerer = DetailedRenderer(output_resolution)
+        self.blending_network = BlendingNetwork(use_full)
 
-    def forward(self, origin, camera_matrix, input_image, depth_map):
+    def forward(self, origin, camera_matrix, input_image, depth_map, use_detailed=True):
         # 单图像输入
         self.initialize_volume(camera_matrix, input_image, depth_map)
         self.sglv_volume = self.sglv_encoder_decoder(self.volume)
         envmap = self.sglv_renderer.render(origin, self.sglv_volume, self.voxel_range)
-        detailed_envmap = self.detailed_rednerer.render(origin, camera_matrix, input_image, depth_map)
-        mask = (detailed_envmap > 0).any(dim=0, keepdim=True).float().to(detailed_envmap.device)
-        blended_env = self.blending_network(envmap, detailed_envmap, mask)
-        # rendered_sphere = self.renderer(blended_env)
-        # return blended_env, rendered_sphere
-        return blended_env
+        if use_detailed:
+            detailed_envmap = self.detailed_rednerer.render(origin, camera_matrix, input_image, depth_map)
+            mask = (detailed_envmap > 0).any(dim=0, keepdim=True).float().to(detailed_envmap.device)
+            envmap = self.blending_network(envmap, detailed_envmap, mask)
+        return envmap
 
     def initialize_volume(self, camera_matrix, input_image, depth_map):
         device = self.volume.device  # 统一设备管理
@@ -137,7 +133,7 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     # 推理
     model = LightingEstimationModel().to(device)
-    model.load_state_dict(torch.load("checkpoints_new/model_checkpoint_2000.pth", map_location=device, weights_only=True)['model_state_dict'])
+    # model.load_state_dict(torch.load("checkpoints/model_checkpoint_1000.pth", map_location=device, weights_only=True)['model_state_dict'])
     projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
     dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)

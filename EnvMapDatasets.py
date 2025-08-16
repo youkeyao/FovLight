@@ -7,12 +7,13 @@ import torch
 from torch.utils.data import Dataset
 
 class EnvMapDatasets(Dataset):
-    def __init__(self, root_dir):
+    def __init__(self, root_dir, image_resolution=(240, 320), lighting_resolution=(160, 320)):
         """
         Args:
             root_dir (string): Directory with all the data.
         """
-        self.resolution = (160, 120)
+        self.image_resolution = image_resolution
+        self.lighting_resolution = lighting_resolution
         self.root_dir = root_dir
         self.data_paths = self.load_data_paths()
 
@@ -58,7 +59,7 @@ class EnvMapDatasets(Dataset):
 
         # Load image
         image = cv2.imread(image_path, -1)[:, :, 0:3][:, :, ::-1].astype(np.float32) / 255
-        image = cv2.resize(image, self.resolution)
+        image = cv2.resize(image, (self.image_resolution[1], self.image_resolution[0]))
         # srgb to linear
         image = np.where(
             image <= 0.04045,
@@ -68,10 +69,11 @@ class EnvMapDatasets(Dataset):
 
         # Load depth
         depth = cv2.imread(depth_path, -1)[:, :, 0:1].astype(np.float32)
-        depth = cv2.resize(depth, self.resolution).reshape(self.resolution[1], self.resolution[0], 1)
+        depth = cv2.resize(depth, (self.image_resolution[1], self.image_resolution[0])).reshape(self.image_resolution[0], self.image_resolution[1], 1)
 
         # Load lighting environment map
         lighting = cv2.imread(lighting_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)[:, :, 0:3][:, :, ::-1].astype(np.float32)
+        lighting = cv2.resize(lighting, (self.lighting_resolution[1], self.lighting_resolution[0]))
 
         # Create a sample dictionary
         # image: channel, height, width
@@ -88,7 +90,7 @@ class EnvMapDatasets(Dataset):
 
 # Example usage
 if __name__ == "__main__":
-    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(480, 640), lighting_resolution=(80, 160))
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:

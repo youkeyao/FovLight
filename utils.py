@@ -1,5 +1,6 @@
 import torch
 import math
+import numpy as np
 
 def get_free_gpu():
     """
@@ -93,3 +94,11 @@ def visualize_voxel_data(voxel_data, voxel_range):
         # 写入点数据
         for (x, y, z), (r, g, b), alpha in zip(points, colors, alphas):
             f.write(f"{x} {y} {z} {r} {g} {b} {alpha}\n")
+
+def linear_to_srgb(linear_rgb_array):
+    srgb_array = np.where(
+        linear_rgb_array <= 0.0031308,
+        linear_rgb_array * 12.92,
+        1.055 * (linear_rgb_array ** (1.0 / 2.4)) - 0.055
+    )
+    return srgb_array

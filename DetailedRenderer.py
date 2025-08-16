@@ -15,7 +15,7 @@ from pytorch3d.renderer import (
     HardFlatShader,
 )
 from EnvMapDatasets import EnvMapDatasets
-from utils import create_projection_matrix
+from utils import create_projection_matrix, linear_to_srgb
 
 def create_mesh_from_depth(depth_map, camera_matrix, depth_threshold=0.1):
     _, H, W = depth_map.shape
@@ -290,7 +290,7 @@ if __name__ == "__main__":
         print(pos)
         envmap = detailed_renderer.render(pos, projection_matrix, image, depth)
         envmap_np = envmap.permute(1, 2, 0).numpy()[:, :, ::-1]
-        cv2.imshow("envmap", envmap_np)
+        cv2.imshow("envmap", linear_to_srgb(envmap_np))
         key = cv2.waitKey(0) & 0xFF
         if key == ord('q'):
             break

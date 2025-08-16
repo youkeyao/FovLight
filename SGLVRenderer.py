@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class SGLVRenderer():
-    def __init__(self, resolution=(160, 320)):
+    def __init__(self, resolution=(160, 320), sample_num=100):
         self.resolution = resolution
-        self.sample_num = 100
+        self.sample_num = sample_num
 
     def render(self, origin, SGLV, voxel_range):
         # 生成像素坐标网格
