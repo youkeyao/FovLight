@@ -80,6 +80,7 @@ class EnvMapDatasets(Dataset):
         # depth: channel, height, width
         # lighting: channel, height, width
         sample = {
+            "name": os.path.basename(lighting_path),
             'image': torch.from_numpy(image).permute(2, 0, 1),
             'depth': torch.from_numpy(depth).permute(2, 0, 1),
             'lighting': torch.from_numpy(lighting).permute(2, 0, 1),

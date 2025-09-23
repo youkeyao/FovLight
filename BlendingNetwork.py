@@ -4,11 +4,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class BlendingNetwork(nn.Module):
-    def __init__(self, use_full=True):
+    def __init__(self, level=3):
         super().__init__()
-        self.use_full = use_full
+        self.level = level
         self.conv = nn.Sequential(
-            nn.Conv2d(8, 64, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(8, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
         )
         self.encoder1 = nn.Sequential(
@@ -32,19 +34,32 @@ class BlendingNetwork(nn.Module):
             nn.ReLU(),
         )
 
-        self.weight_head = nn.Sequential(
-            nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1),
-            nn.Sigmoid(),
+        self.weight1_head = nn.Sequential(
+            nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 1, kernel_size=3, stride=1, padding=1),
+            nn.Softplus(),
+        )
+        self.weight2_head = nn.Sequential(
+            nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 1, kernel_size=3, stride=1, padding=1),
+            nn.Softplus(),
         )
 
     def forward(self, hdr_env, ldr_env, mask):
         input = torch.cat([hdr_env, ldr_env, mask, 1 - mask], dim=0)
         x = self.conv(input)
-        features = self.encoder1(x)
-        if self.use_full:
+        features = x
+        if self.level > 1:
+            features = self.encoder1(features)
+        if self.level > 2:
             features = self.encoder2(features)
             features = self.decoder2(features)
-        x = self.decoder1(features) + x
+        if self.level > 1:
+            features = self.decoder1(features)
+        x = features
         # 各参数预测
-        w = self.weight_head(x)
-        return (1 - w) * hdr_env + w * ldr_env
+        w1 = self.weight1_head(x)
+        w2 = self.weight2_head(x)
+        return w1 * hdr_env + w2 * ldr_env

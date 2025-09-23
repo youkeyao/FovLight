@@ -2,6 +2,7 @@ import mitsuba as mi
 import numpy as np
 import torch
 import cv2
+from accelerate import Accelerator
 from EnvMapDatasets import EnvMapDatasets
 from LightEstimationModel import LightingEstimationModel
 from utils import get_free_gpu, create_projection_matrix, linear_to_srgb
@@ -82,7 +83,7 @@ class ObjectRenderer:
             ),
             'sampler': {
                 'type': 'independent',
-                'sample_count': 16
+                'sample_count': 1024
             },
             'film': {
                 'type': 'hdrfilm',
@@ -147,7 +148,7 @@ class ObjectRenderer:
             ),
             'sampler': {
                 'type': 'independent',
-                'sample_count': 512
+                'sample_count': 1024
             },
             'film': {
                 'type': 'hdrfilm',
@@ -191,15 +192,17 @@ class ObjectRenderer:
 
 # 使用示例
 if __name__ == "__main__":
-    selected_gpu = get_free_gpu()
-    device = torch.device("cpu" if selected_gpu is None else f"cuda:{selected_gpu}")
-    model = LightingEstimationModel().to(device)
-    model.load_state_dict(torch.load("checkpoints_new/model_checkpoint_2000.pth", map_location=device, weights_only=True)['model_state_dict'])
+    accelerator = Accelerator()
+    device = accelerator.device
+    model = LightingEstimationModel((168, 120, 128), (160, 320), 100, 3)
+    model = accelerator.prepare(model)
+    accelerator.load_state("checkpoints/voxel_0")
     projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
-    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(720, 960))
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(480, 640))
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
     renderer = ObjectRenderer(dataset.image_resolution)
 
+    model.eval()
     for batch in dataloader:
         image = batch['image'][0]
         depth = batch['depth'][0]

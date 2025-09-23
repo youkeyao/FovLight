@@ -57,11 +57,11 @@ class SGLVRenderer():
         accumulated_color = torch.sum(weights * c, dim=3)
         # 累积球面高斯参数
         accumulated_w = torch.sum(weights * w, dim=3)
-        accumulated_lamb = torch.sum(weights * lamb, dim=2)
+        accumulated_lamb = torch.sum(weights * lamb, dim=3)
         accumulated_s = torch.sum(weights * s, dim=3)
         # 计算环境贴图
         accumulated_s_dot_dir = torch.einsum('ijk, ijk->ij', ray_directions, accumulated_s.permute(1, 2, 0))
-        envmap = accumulated_color
+        envmap = accumulated_color + accumulated_w * torch.exp(accumulated_lamb * (accumulated_s_dot_dir - 1))
 
         return envmap
 

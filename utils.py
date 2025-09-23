@@ -102,3 +102,10 @@ def linear_to_srgb(linear_rgb_array):
         1.055 * (linear_rgb_array ** (1.0 / 2.4)) - 0.055
     )
     return srgb_array
+
+def psnr(img1, img2):
+    mse = np.mean((img1 - img2) ** 2)
+    if mse == 0:
+        return float('inf')
+    PIXEL_MAX = max(np.max(img1), np.max(img2))
+    return 20 * np.log10(PIXEL_MAX / np.sqrt(mse))

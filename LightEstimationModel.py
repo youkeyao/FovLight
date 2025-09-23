@@ -13,7 +13,7 @@ from BlendingNetwork import BlendingNetwork
 
 # 主模型
 class LightingEstimationModel(nn.Module):
-    def __init__(self, voxel_resolution=(168, 120, 128), output_resolution=(160, 320), sample_num=100, use_full=True):
+    def __init__(self, voxel_resolution=(168, 120, 128), output_resolution=(160, 320), sample_num=100, level=3):
         super().__init__()
 
         self.voxel_range = [torch.tensor([-5, -5, -5]), torch.tensor([5, 5, 5])]
@@ -24,10 +24,10 @@ class LightingEstimationModel(nn.Module):
         self.register_buffer('volume', torch.randn(5, *self.voxel_resolution))
         self.register_buffer('sglv_volume', torch.randn(11, *self.voxel_resolution))
 
-        self.sglv_encoder_decoder = SGLVEncoderDecoder(use_full)
+        self.sglv_encoder_decoder = SGLVEncoderDecoder(level)
         self.sglv_renderer = SGLVRenderer(output_resolution, sample_num)
         self.detailed_rednerer = DetailedRenderer(output_resolution)
-        self.blending_network = BlendingNetwork(use_full)
+        self.blending_network = BlendingNetwork(level)
 
     def forward(self, origin, camera_matrix, input_image, depth_map, use_detailed=True):
         # 单图像输入
