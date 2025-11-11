@@ -96,6 +96,8 @@ def visualize_voxel_data(voxel_data, voxel_range):
             f.write(f"{x} {y} {z} {r} {g} {b} {alpha}\n")
 
 def linear_to_srgb(linear_rgb_array):
+    linear_rgb_array = np.nan_to_num(linear_rgb_array)
+    linear_rgb_array = np.clip(linear_rgb_array, 0.0, 1.0)
     srgb_array = np.where(
         linear_rgb_array <= 0.0031308,
         linear_rgb_array * 12.92,

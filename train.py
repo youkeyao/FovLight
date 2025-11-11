@@ -1,5 +1,6 @@
 import os
 import torch
+from torch.utils.data import ConcatDataset
 from torchvision.utils import save_image
 import json
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
@@ -9,6 +10,7 @@ from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 from tqdm import tqdm
 from EnvMapDatasets import EnvMapDatasets
+from KePanoLightDataset import KePanoLightDataset
 from LightEstimationModel import LightingEstimationModel
 from ObjectRenderer import ObjectRenderer
 from utils import create_projection_matrix
@@ -20,8 +22,15 @@ class LogL2Loss(torch.nn.Module):
     def forward(self, pred, target):
         log_input = torch.log1p(pred)
         log_target = torch.log1p(target)
+        # return torch.sum((log_input - log_target) ** 2)
 
-        return torch.sum((log_input - log_target) ** 2)
+        # gray = 0.299 * target[0] + 0.587 * target[1] + 0.114 * target[2]
+        # mask = gray > 1
+        mask = (target > 0.9).any(dim=0)
+        w = 0.7
+
+        # return torch.sum(w * mask * ((log_input - log_target) ** 2) + (1 - w) * (~mask) * ((target - pred) ** 2))
+        return torch.sum(w * mask * ((log_input - log_target) ** 2) + (1 - w) * (~mask) * ((log_input - log_target) ** 2))
 
 def train(model, projection_matrix, train_loader, criterion, optimizer, accelerator, use_detailed):
     total_loss = 0
@@ -35,9 +44,9 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, accelera
 
         optimizer.zero_grad()
         output = model(pos, projection_matrix, image, depth, use_detailed)
-        render_old, mask_old = object_renderer.render_shadow(render_pos, lighting)
-        render_new, mask_new = object_renderer.render_shadow(render_pos, output)
-        loss = criterion(output, lighting) + criterion(render_new * mask_new, render_old * mask_old)
+        render_old = torch.from_numpy(object_renderer.render_sphere(render_pos, lighting))
+        render_new = torch.from_numpy(object_renderer.render_sphere(render_pos, output))
+        loss = criterion(output, lighting) + criterion(render_new, render_old)
 
         accelerator.backward(loss)
         optimizer.step()
@@ -57,6 +66,7 @@ def main(checkpoint_dir, model_param):
     learning_rate = 1e-4
     pre_epochs = 1500
     num_epochs = 2000
+    saving_interval = 100
 
     accelerator = Accelerator(
         log_with="tensorboard",
@@ -67,10 +77,10 @@ def main(checkpoint_dir, model_param):
     device = accelerator.device
     print(f"Using device: {device}")
 
-    projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20).to(device)
+    projection_matrix = create_projection_matrix(120, 832/400, 0.1, 20).to(device)
     model = LightingEstimationModel(*model_param).to(device)
     # 创建数据集
-    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(240, 320), lighting_resolution=model.output_resolution)
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(400, 832), lighting_resolution=(320, 640))
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     criterion = LogL2Loss()
@@ -95,7 +105,7 @@ def main(checkpoint_dir, model_param):
             accelerator.print(f'{device} {checkpoint_dir} Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss:.4f}')
             accelerator.log({"train/epoch_loss": train_loss}, step=epoch+1)
             # 保存检查点
-            if (epoch+1) % 100 == 0:
+            if (epoch+1) % saving_interval == 0:
                 accelerator.save_state(checkpoint_dir)
                 with open(os.path.join(checkpoint_dir, "extra_state.json"), "w") as f:
                     json.dump({"epoch": epoch+1}, f)
@@ -109,42 +119,28 @@ def main(checkpoint_dir, model_param):
             accelerator.print(f'{device} {checkpoint_dir} Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss:.4f}')
             accelerator.log({"train/epoch_loss": train_loss}, step=epoch+1)
             # 保存检查点
-            if (epoch+1) % 100 == 0:
+            if (epoch+1) % saving_interval == 0:
                 accelerator.save_state(checkpoint_dir)
                 with open(os.path.join(checkpoint_dir, "extra_state.json"), "w") as f:
                     json.dump({"epoch": epoch+1}, f)
-    
-    # 保存图片
-    model.eval()
-    with torch.no_grad():
-        for batch in dataloader:
-            name = batch['name'][0]
-            image = batch['image'][0]
-            depth = batch['depth'][0]
-            lighting = batch['lighting'][0]
-            pos = batch["pos"][0]
-
-            envmap = model(pos.to(device), projection_matrix.to(device), image.to(device), depth.to(device))
-            envmap_np = envmap.permute(1, 2, 0).cpu().numpy().astype(np.float32)[:, :, ::-1]
-            cv2.imwrite(os.path.join(checkpoint_dir, name), envmap_np)
 
 if __name__ == "__main__":
-    main("checkpoints/voxel_0", ((168, 120, 128), (160, 320), 100, 3))
-    main("checkpoints/voxel_1", ((151, 108, 115), (160, 320), 100, 3))
-    main("checkpoints/voxel_2", ((134, 96, 102), (160, 320), 100, 3))
-    main("checkpoints/voxel_3", ((118, 84, 90), (160, 320), 100, 3))
-    main("checkpoints/voxel_4", ((101, 72, 77), (160, 320), 100, 3))
-    main("checkpoints/voxel_5", ((84, 60, 64), (160, 320), 100, 3))
-    main("checkpoints/voxel_6", ((67, 48, 51), (160, 320), 100, 3))
-    main("checkpoints/voxel_7", ((50, 36, 38), (160, 320), 100, 3))
-    main("checkpoints/voxel_8", ((34, 24, 26), (160, 320), 100, 3))
-    main("checkpoints/voxel_9", ((17, 12, 13), (160, 320), 100, 3))
+    main("checkpoints/voxel_0", ((168, 120, 128), (320, 640), 100, 4))
+    main("checkpoints/voxel_1", ((151, 108, 115), (320, 640), 100, 4))
+    main("checkpoints/voxel_2", ((134, 96, 102), (320, 640), 100, 4))
+    main("checkpoints/voxel_3", ((118, 84, 90), (320, 640), 100, 4))
+    main("checkpoints/voxel_4", ((101, 72, 77), (320, 640), 100, 4))
+    main("checkpoints/voxel_5", ((84, 60, 64), (320, 640), 100, 4))
+    main("checkpoints/voxel_6", ((67, 48, 51), (320, 640), 100, 4))
+    main("checkpoints/voxel_7", ((50, 36, 38), (320, 640), 100, 4))
+    main("checkpoints/voxel_8", ((34, 24, 26), (320, 640), 100, 4))
+    main("checkpoints/voxel_9", ((17, 12, 13), (320, 640), 100, 4))
 
-    main("checkpoints/network_0", ((168, 120, 128), (160, 320), 100, 3))
-    main("checkpoints/network_1", ((168, 120, 128), (160, 320), 100, 2))
-    main("checkpoints/network_2", ((168, 120, 128), (160, 320), 100, 1))
+    main("checkpoints/network_2", ((168, 120, 128), (320, 640), 100, 1))
+    main("checkpoints/network_1", ((168, 120, 128), (320, 640), 100, 2))
+    main("checkpoints/network_0", ((168, 120, 128), (320, 640), 100, 3))
 
-    # main("checkpoints/voxel", ((84, 60, 64), (160, 320), 100, True))
+    # main("checkpoints/voxel", ((84, 60, 64), (320, 640), 100, True))
     # main("checkpoints/resolution", ((168, 120, 128), (80, 160), 100, True))
-    # main("checkpoints/sample", ((168, 120, 128), (160, 320), 50, True))
-    # main("checkpoints/network", ((168, 120, 128), (160, 320), 100, False))
+    # main("checkpoints/sample", ((168, 120, 128), (320, 640), 50, True))
+    # main("checkpoints/network", ((168, 120, 128), (320, 640), 100, False))

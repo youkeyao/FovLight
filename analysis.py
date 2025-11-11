@@ -9,6 +9,13 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 from pytorch_msssim import ms_ssim
 import lpips
 import matplotlib.pyplot as plt
+from accelerate import Accelerator
+from LightEstimationModel import LightingEstimationModel
+from EnvMapDatasets import EnvMapDatasets
+from ObjectRenderer import ObjectRenderer
+from utils import create_projection_matrix
+
+loss_fn_alex = lpips.LPIPS(net='alex')
 
 def lpips_input(arr: np.ndarray):
     tensor = torch.from_numpy(arr).float()
@@ -26,95 +33,149 @@ def ms_ssim_input(arr: np.ndarray):
 
     return tensor.permute(2, 0, 1).unsqueeze(0)
 
-loss_fn_alex = lpips.LPIPS(net='alex')
+def analysis_envmap(checkpoint_dir, model_param):
+    accelerator = Accelerator()
+    device = accelerator.device
+    model = LightingEstimationModel(*model_param)
+    model = accelerator.prepare(model)
+    accelerator.load_state(checkpoint_dir)
+    projection_matrix = create_projection_matrix(120, 440/385, 0.1, 20)
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(385, 440), lighting_resolution=model.output_resolution)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
-root_dir = "/mnt/data/youkeyao/Datasets/LightEnv"
-image_paths = []
-pattern = re.compile(
-    r'^'                # 开头
-    r'([-+]?\d*\.?\d+)' # 第一个浮点数（可选符号，可选整数部分，可选小数部分）
-    r'_'                # 下划线分隔符
-    r'([-+]?\d*\.?\d+)' # 第二个浮点数
-    r'_'                # 下划线分隔符
-    r'([-+]?\d*\.?\d+)' # 第三个浮点数
-    r'\.exr$'           # .exr 扩展名
-)
-for scene in os.listdir(root_dir):
-    for filename in os.listdir(os.path.join(root_dir, scene)):
-        if not filename.lower().endswith('.exr'):
-            continue
-        match = pattern.match(filename)
-        if match:
-            try:
-                x = float(match.group(1))
-                y = float(match.group(2))
-                z = float(match.group(3))
-                lighting_path = os.path.join(root_dir, scene, filename)
-                image_paths.append(lighting_path)
-            except ValueError:
-                continue
-
-checkpoint_paths = [
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_0",
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_1",
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_2",
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_3",
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_4",
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_5",
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_6",
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_7",
-    "/mnt/data/youkeyao/FovLight/checkpoints/voxel_8",
-    # "/mnt/data/youkeyao/FovLight/checkpoints/voxel_9",
-    # "/mnt/data/youkeyao/FovLight/checkpoints/network_0",
-    # "/mnt/data/youkeyao/FovLight/checkpoints/network_1",
-    # "/mnt/data/youkeyao/FovLight/checkpoints/network_2",
-]
-
-psnrs = []
-ms_ssims = []
-lpipss = []
-with torch.no_grad():
-    for checkpoint_path in checkpoint_paths:
+    with torch.no_grad():
         psnr_score = 0
         ssim_score = 0
         lpips_score = 0
-        for image_path in image_paths:
-            origin = cv2.imread(image_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)[:, :, 0:3][:, :, ::-1].astype(np.float32)
+        count = 0
+        for batch in dataloader:
+            image = batch['image'][0]
+            depth = batch['depth'][0]
+            lighting = batch['lighting'][0]
+            pos = batch["pos"][0]
 
-            image = cv2.imread(os.path.join(checkpoint_path, os.path.basename(image_path)), cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)[:, :, 0:3][:, :, ::-1].astype(np.float32)
+            envmap = model(pos.to(device), projection_matrix.to(device), image.to(device), depth.to(device)).permute(1, 2, 0).detach().cpu().numpy()
+            origin = lighting.permute(1, 2, 0).detach().cpu().numpy()
 
-            # range = max(np.max(origin), np.max(image))
+            # range = max(np.max(origin), np.max(envmap))
             range = 1.0
-            psnr_score += psnr(origin, image, data_range=range)
-            ssim_score += ms_ssim(ms_ssim_input(origin), ms_ssim_input(image), data_range=range)
-            lpips_score += loss_fn_alex(lpips_input(origin), lpips_input(image)).item()
-        psnr_score /= len(image_paths)
-        ssim_score /= len(image_paths)
-        lpips_score /= len(image_paths)
-        psnrs.append(psnr_score)
-        ms_ssims.append(ssim_score)
-        lpipss.append(lpips_score)
+            psnr_score += psnr(origin, envmap, data_range=range)
+            ssim_score += ms_ssim(ms_ssim_input(origin), ms_ssim_input(envmap), data_range=range)
+            lpips_score += loss_fn_alex(lpips_input(origin), lpips_input(envmap)).item()
+            count += 1
+        psnr_score /= count
+        ssim_score /= count
+        lpips_score /= count
+        
+        return (psnr_score, ssim_score, lpips_score)
+    
+def analysis_render(checkpoint_dir, model_param):
+    accelerator = Accelerator()
+    device = accelerator.device
+    model = LightingEstimationModel(*model_param)
+    model = accelerator.prepare(model)
+    accelerator.load_state(checkpoint_dir)
+    projection_matrix = create_projection_matrix(120, 440/385, 0.1, 20)
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(385, 440), lighting_resolution=model.output_resolution)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
+    renderer = ObjectRenderer((385, 440), 120)
+    render_pos = torch.tensor([0, 0, -0.15])
 
-psnrs = np.array(psnrs)
-# psnrs = (psnrs) / (psnrs.max())
-ms_ssims = np.array(ms_ssims)
-# ssims = (ssims) / (ssims.max())
-lpipss = np.array(lpipss)
-# lpipss = (lpipss) / (lpipss.max())
+    with torch.no_grad():
+        psnr_score = 0
+        ssim_score = 0
+        lpips_score = 0
+        count = 0
+        for batch in dataloader:
+            image = batch['image'][0]
+            depth = batch['depth'][0]
+            lighting = batch['lighting'][0]
+            pos = batch["pos"][0]
 
-fig, ax1 = plt.subplots()
-x = np.linspace(0, len(psnrs)-1, len(psnrs))
-ax1.plot(x, psnrs, label='psnr')
-ax1.legend()
-ax2 = ax1.twinx()
-ax2.plot(x, ms_ssims, label='ms_ssim')
-ax2.plot(x, lpipss, label='lpips')
+            envmap = model(pos.to(device), projection_matrix.to(device), image.to(device), depth.to(device))
+            origin = lighting
 
-plt.title("quality")
-plt.xlabel("params")
-plt.ylabel("value")
-ax2.legend()
-plt.grid(True)
+            sphere = renderer.render_sphere(render_pos, envmap)
+            origin = renderer.render_sphere(render_pos, origin)
 
-# 保存图片
-plt.savefig("quality.png", dpi=300, bbox_inches='tight')
+            range = 1.0
+            psnr_score += psnr(origin, sphere, data_range=range)
+            ssim_score += ms_ssim(ms_ssim_input(origin), ms_ssim_input(sphere), data_range=range)
+            lpips_score += loss_fn_alex(lpips_input(origin), lpips_input(sphere)).item()
+            count += 1
+        psnr_score /= count
+        ssim_score /= count
+        lpips_score /= count
+        
+        return (psnr_score, ssim_score, lpips_score)
+    
+def main():
+    result = []
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_0", ((168, 120, 128), (320, 640), 100, 4)))
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_1", ((151, 108, 115), (320, 640), 100, 4)))
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_2", ((134, 96, 102), (320, 640), 100, 4)))
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_3", ((118, 84, 90), (320, 640), 100, 4)))
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_4", ((101, 72, 77), (320, 640), 100, 4)))
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_5", ((84, 60, 64), (320, 640), 100, 4)))
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_6", ((67, 48, 51), (320, 640), 100, 4)))
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_7", ((50, 36, 38), (320, 640), 100, 4)))
+    # result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints/voxel_8", ((34, 24, 26), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_0", ((168, 120, 128), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_1", ((151, 108, 115), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_2", ((134, 96, 102), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_3", ((118, 84, 90), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_4", ((101, 72, 77), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_5", ((84, 60, 64), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_6", ((67, 48, 51), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_7", ((50, 36, 38), (320, 640), 100, 4)))
+    # result.append(analysis_render("/mnt/data/youkeyao/FovLight/checkpoints/voxel_8", ((34, 24, 26), (320, 640), 100, 4)))
+    result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints_new2/voxel_0", ((168, 120, 128), (320, 640), 100, 4)))
+    result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints_new2/network_0", ((168, 120, 128), (320, 640), 100, 3)))
+    result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints_new2/network_1", ((168, 120, 128), (320, 640), 100, 2)))
+    result.append(analysis_envmap("/mnt/data/youkeyao/FovLight/checkpoints_new2/network_2", ((168, 120, 128), (320, 640), 100, 1)))
+
+    result = np.array(result)
+    psnrs = result[:, 0]
+    # psnrs = (psnrs) / (psnrs.max())
+    ms_ssims = result[:, 1]
+    # ssims = (ssims) / (ssims.max())
+    lpipss = result[:, 2]
+    # lpipss = (lpipss) / (lpipss.max())
+
+    fig, ax1 = plt.subplots()
+    x = np.linspace(0, len(psnrs)-1, len(psnrs))
+    ax1.plot(x, psnrs, label='psnr')
+    ax1.legend()
+    ax2 = ax1.twinx()
+    ax2.plot(x, ms_ssims, label='ms_ssim', color='red')
+    ax2.plot(x, lpipss, label='lpips')
+
+    plt.title("quality")
+    plt.xlabel("params")
+    plt.ylabel("value")
+    ax2.legend()
+    plt.grid(True)
+
+    # 保存图片
+    plt.savefig("quality.png", dpi=300, bbox_inches='tight')
+    
+if __name__ == "__main__":
+    main()
+
+    # gt = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/0/gt.png", -1)[1700:2150, 2200:2500, 0:3][:, :, ::-1].astype(np.float32) / 255
+    # im = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/0/voxel_8.png", -1)[1700:2150, 2200:2500, 0:3][:, :, ::-1].astype(np.float32) / 255
+    # cv2.imshow("test", gt)
+    # cv2.waitKey(0)
+    # print(psnr(gt, im, data_range=1))
+
+    # gt = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/1/gt.png", -1)[1700:2150, 2400:2800, 0:3][:, :, ::-1].astype(np.float32) / 255
+    # im = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/1/voxel_8.png", -1)[1700:2150, 2400:2800, 0:3][:, :, ::-1].astype(np.float32) / 255
+    # # cv2.imshow("test", gt)
+    # # cv2.waitKey(0)
+    # print(psnr(gt, im, data_range=1))
+
+    # gt = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/2/gt.png", -1)[1700:2150, 2800:3200, 0:3][:, :, ::-1].astype(np.float32) / 255
+    # im = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/2/voxel_8.png", -1)[1700:2150, 2800:3200, 0:3][:, :, ::-1].astype(np.float32) / 255
+    # # cv2.imshow("test", gt)
+    # # cv2.waitKey(0)
+    # print(psnr(gt, im, data_range=1))

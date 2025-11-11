@@ -41,7 +41,7 @@ class LightingEstimationModel(nn.Module):
         return envmap
 
     def initialize_volume(self, camera_matrix, input_image, depth_map):
-        device = self.volume.device  # 统一设备管理
+        device = next(self.sglv_encoder_decoder.parameters()).device
     
         # --- 1. 体素范围初始化优化 ---
         D_max = torch.max(depth_map)
@@ -67,17 +67,17 @@ class LightingEstimationModel(nn.Module):
             voxel_pos_z.flatten(),
             torch.ones_like(voxel_pos_z.flatten())
         ], dim=1)
-        
+
         # --- 4. 投影计算优化 ---
         proj_pos = torch.matmul(points, camera_matrix.T)
         proj_pos = proj_pos / proj_pos[:, 2:3]  # 透视除法
-        
+
         # --- 5. 坐标归一化优化 ---
         # 假设输入图像尺寸为(H,W)，需要转换为grid_sample的归一化坐标
         uv_normalized = torch.empty_like(proj_pos[:, :2])
         uv_normalized[:, 0] = proj_pos[:, 0]
         uv_normalized[:, 1] = -proj_pos[:, 1]  # Y翻转
-        
+
         # --- 6. 采样优化 ---
         grid_sample = uv_normalized.view(1, 1, -1, 2)  # 直接使用归一化坐标
         input_color = F.grid_sample(

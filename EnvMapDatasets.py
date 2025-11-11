@@ -80,7 +80,7 @@ class EnvMapDatasets(Dataset):
         # depth: channel, height, width
         # lighting: channel, height, width
         sample = {
-            "name": os.path.basename(lighting_path),
+            "name": os.path.join(*lighting_path.split(os.sep)[-2:]),
             'image': torch.from_numpy(image).permute(2, 0, 1),
             'depth': torch.from_numpy(depth).permute(2, 0, 1),
             'lighting': torch.from_numpy(lighting).permute(2, 0, 1),
@@ -91,10 +91,11 @@ class EnvMapDatasets(Dataset):
 
 # Example usage
 if __name__ == "__main__":
-    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(480, 640), lighting_resolution=(80, 160))
+    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(400, 832), lighting_resolution=(320, 640))
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:
+        name = batch['name'][0]
         image = batch['image'][0]
         depth = batch['depth'][0]
         lighting = batch['lighting'][0]
@@ -108,7 +109,7 @@ if __name__ == "__main__":
 
         cv2.imshow("Image and Depth Map", combined_image)
         cv2.imshow("Lighting map", lighting_np)
-        print(pos)
+        print(name, pos)
         key = cv2.waitKey(0) & 0xFF
         if key == ord('q'):
             break
