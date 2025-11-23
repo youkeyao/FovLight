@@ -15,19 +15,23 @@ from pytorch3d.renderer import (
     HardFlatShader,
 )
 from EnvMapDatasets import EnvMapDatasets
+from EnvMapVideoDatasets import EnvMapVideoDatasets
 from utils import create_projection_matrix, linear_to_srgb
 
-def create_mesh_from_depth(depth_map, camera_matrix, depth_threshold=0.1):
+def create_mesh_from_depth(depth_map, P, V, depth_threshold=0.1):
     _, H, W = depth_map.shape
-    f = camera_matrix[0, 0]
     device = depth_map.device
 
     # Back Projection
     v_coords = (torch.arange(H, device=device) - (H-1) / 2) / (H-1) * 2
     u_coords = (torch.arange(W, device=device) - (W-1) / 2) / (W-1) * 2
     v, u = torch.meshgrid(v_coords, u_coords, indexing='ij')
-    directions = torch.stack([u / camera_matrix[0, 0], -v / camera_matrix[1, 1], -torch.ones_like(v)], dim=-1)
+    directions = torch.stack([u / P[0, 0], -v / P[1, 1], -torch.ones_like(v)], dim=-1)
     vertices = directions * depth_map[0, :, :].unsqueeze(-1)
+    ones = torch.ones((H, W, 1), device=device)
+    vertices = torch.cat([vertices, ones], dim=-1)
+    vertices = torch.einsum("hwk, kj -> hwj", vertices, torch.inverse(V).T)
+    vertices = vertices[..., :3]
 
     # Generate triangular faces
     depth_map_2d = depth_map[0]
@@ -60,17 +64,17 @@ def create_mesh_from_depth(depth_map, camera_matrix, depth_threshold=0.1):
         ], dim=0)
 
         faces = triangles.reshape(-1, 3)
-    
+
     # Normalized texture coordinates
     tex_u = (u + 1) / 2
     tex_v = 1 - (v + 1) / 2
     tex_coords = torch.stack((tex_u, tex_v), dim=-1)
-    
+
     return vertices.reshape(-1, 3), faces.reshape(-1, 3), tex_coords.reshape(-1, 2)
 
 def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
     camera_pos = origin.repeat(6, 1)
-        
+
     # Define 6 directions for cubemap (Right, Left, Up, Down, Front, Back)
     # Note: PyTorch3D uses different coordinate system than Open3D
     directions = torch.tensor([
@@ -81,7 +85,7 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
         [0, 0, 1],
         [0, 0, -1],
     ], dtype=torch.float32, device=device)
-    
+
     ups = torch.tensor([
         [0, 1, 0],
         [0, 1, 0],
@@ -96,7 +100,7 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
         image_size=resolution,
         blur_radius=0.0,
     )
-    
+
     # Setup renderer
     renderer = MeshRenderer(
         rasterizer=MeshRasterizer(
@@ -109,7 +113,7 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
             blend_params=BlendParams(background_color=(0, 0, 0)),
         )
     )
-    
+
     target = camera_pos + directions
     R, T = look_at_view_transform(
         eye=camera_pos,
@@ -117,7 +121,11 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
         up=ups,
         device=device
     )
+    znear = 0.01
+    zfar = 20
     cameras = FoVPerspectiveCameras(
+        znear=znear,
+        zfar=zfar,
         R=R,
         T=T,
         fov=fov,
@@ -125,45 +133,49 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
     )
     renderer.rasterizer.cameras = cameras
     renderer.shader.cameras = cameras
-        
+
     # Render the scene
     with torch.no_grad():
-        images = renderer(mesh)
-        return images[:, :, :, :3].permute(0, 3, 1, 2)
-    
+        fragments = renderer.rasterizer(mesh)
+        depth_world = fragments.zbuf[..., 0].unsqueeze(1)
+        images = renderer.shader(fragments, mesh)
+        rgb = images[..., :3].permute(0, 3, 1, 2)
+
+    return rgb, depth_world
+
 def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
     height, width = resolution
     device = cubemap_images.device
     C = cubemap_images.shape[1]
-    
+
     # 创建坐标网格 (向量化)
     y, x = torch.meshgrid(
         torch.arange(height, dtype=torch.float32, device=device),
         torch.arange(width, dtype=torch.float32, device=device),
         indexing='ij'
     )
-    
+
     # 转换为球面坐标
     theta = 2 * np.pi * x / width  # 经度 [0, 2π]
     phi = np.pi * y / height      # 纬度 [0, π]
-    
+
     # 转换为笛卡尔坐标 (右手坐标系)
     sin_phi = torch.sin(phi)
     x_cart = sin_phi * torch.sin(theta)  # X: 右为正
     y_cart = torch.cos(phi)              # Y: 上为正
     z_cart = -sin_phi * torch.cos(theta)  # Z: 前为正
-    
+
     xyz = torch.stack([x_cart, y_cart, z_cart], dim=-1)  # [H, W, 3]
-    
+
     # 计算绝对值和主导轴
     abs_xyz = torch.abs(xyz)
     max_val, max_axis = torch.max(abs_xyz, dim=-1)  # [H, W]
-    
+
     # 初始化面索引和UV坐标
     face_idx = torch.full((height, width), -1, dtype=torch.long, device=device)
     u_map = torch.zeros_like(x_cart)
     v_map = torch.zeros_like(x_cart)
-    
+
     # 计算每个面的UV坐标 (向量化)
     # 右面 (X+)
     mask = (max_axis == 0) & (xyz[..., 0] >= 0)
@@ -172,7 +184,7 @@ def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
         u_map[mask] = xyz[..., 2][mask] * scale
         v_map[mask] = -xyz[..., 1][mask] * scale
         face_idx[mask] = 0
-    
+
     # 左面 (X-)
     mask = (max_axis == 0) & (xyz[..., 0] < 0)
     if mask.any():
@@ -180,7 +192,7 @@ def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
         u_map[mask] = -xyz[..., 2][mask] * scale
         v_map[mask] = -xyz[..., 1][mask] * scale
         face_idx[mask] = 1
-    
+
     # 上面 (Y+)
     mask = (max_axis == 1) & (xyz[..., 1] >= 0)
     if mask.any():
@@ -188,7 +200,7 @@ def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
         u_map[mask] = -xyz[..., 0][mask] * scale
         v_map[mask] = xyz[..., 2][mask] * scale
         face_idx[mask] = 2
-    
+
     # 下面 (Y-)
     mask = (max_axis == 1) & (xyz[..., 1] < 0)
     if mask.any():
@@ -196,7 +208,7 @@ def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
         u_map[mask] = -xyz[..., 0][mask] * scale
         v_map[mask] = -xyz[..., 2][mask] * scale
         face_idx[mask] = 3
-    
+
     # 前面 (Z+)
     mask = (max_axis == 2) & (xyz[..., 2] >= 0)
     if mask.any():
@@ -204,7 +216,7 @@ def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
         u_map[mask] = -xyz[..., 0][mask] * scale
         v_map[mask] = -xyz[..., 1][mask] * scale
         face_idx[mask] = 4
-    
+
     # 后面 (Z-)
     mask = (max_axis == 2) & (xyz[..., 2] < 0)
     if mask.any():
@@ -215,23 +227,23 @@ def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
 
     # 创建采样网格
     grid = torch.stack([u_map, v_map], dim=-1)  # [H, W, 2]
-    
+
     # 初始化输出等距柱状图
     equirect = torch.zeros((C, height, width), device=device)
-    
+
     # 为每个面采样
     for face in range(6):
         mask = (face_idx == face)
         if not mask.any():
             continue
-            
+
         # 创建当前面的采样网格
         face_grid = grid.clone()
         face_grid[~mask] = -2  # 将非当前面的点移出采样范围
-        
+
         # 调整网格维度 [H, W, 2] -> [1, H, W, 2]
         face_grid = face_grid.unsqueeze(0)
-        
+
         # 采样当前面
         sampled = F.grid_sample(
             cubemap_images[face:face+1],  # [1, C, H_face, W_face]
@@ -240,58 +252,76 @@ def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
             align_corners=True,
             padding_mode='zeros'
         )  # [1, C, H, W]
-        
+
         # 更新等距柱状图
         equirect[:, mask] = sampled[0, :, mask]
-    
+
     return equirect
 
 class DetailedRenderer:
     def __init__(self, resolution=(160, 320)):
         self.resolution = resolution
 
-    def render(self, origin, camera_matrix, input_image, depth_map):
-        vertices, faces, tex_coords = create_mesh_from_depth(
-            depth_map, camera_matrix, depth_threshold=0.5
-        )
-        
-        # Create mesh
-        textures = TexturesUV(
-            maps=[input_image.permute(1, 2, 0)] * 6,
-            faces_uvs=[faces] * 6,
-            verts_uvs=[tex_coords] * 6
-        )
-        mesh = Meshes(
-            verts=[vertices] * 6,
-            faces=[faces] * 6,
-            textures=textures
-        )
-        cubemap_images = render_cube_maps(
-            mesh, origin, input_image.device, resolution=512, fov=90
-        )
-        envmap = create_equirectangular_from_cubemap(cubemap_images, self.resolution)
+    def render(self, origin, P, V, input_image, depth_map):
+        with torch.no_grad():
+            vertices, faces, tex_coords = create_mesh_from_depth(
+                depth_map, P, V, depth_threshold=0.5
+            )
 
-        # save_obj("output.obj", verts=vertices, faces=faces, verts_uvs=tex_coords, faces_uvs=faces, texture_map=input_image.permute(1, 2, 0))
+            # Create mesh
+            textures = TexturesUV(
+                maps=[input_image.permute(1, 2, 0)] * 6,
+                faces_uvs=[faces] * 6,
+                verts_uvs=[tex_coords] * 6
+            )
+            mesh = Meshes(
+                verts=[vertices] * 6,
+                faces=[faces] * 6,
+                textures=textures
+            )
+            cubemap_images, depth_world = render_cube_maps(
+                mesh, origin, input_image.device, resolution=512, fov=90
+            )
+            envmap = create_equirectangular_from_cubemap(cubemap_images, self.resolution)
+            depth_pano = create_equirectangular_from_cubemap(depth_world, self.resolution)
 
-        return envmap
+            # save_obj("output.obj", verts=vertices, faces=faces, verts_uvs=tex_coords, faces_uvs=faces, texture_map=input_image.permute(1, 2, 0))
+
+            return envmap, depth_pano
 
 if __name__ == "__main__":
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     detailed_renderer = DetailedRenderer()
-    projection_matrix = create_projection_matrix(39.6, 640/480, 0.1, 20)
-    dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv')
+    projection_matrix = create_projection_matrix(120, 832/400, 0.1, 20).to(device)
+    dataset = EnvMapVideoDatasets(root_dir='/mnt/data/youkeyao/Datasets/EnvMapVideo')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:
-        image = batch['image'][0]
-        depth = batch['depth'][0]
-        lighting = batch['lighting'][0]
-        pos = batch["pos"][0]
+        rgb = batch['rgb'][0].to(device)
+        depth = batch['depth'][0].to(device)
+        pose = batch['pose'][0].to(device)
+        envmaps = batch["envmaps"][0].to(device)
+        positions = batch["positions"][0].to(device)
 
-        print(pos)
-        envmap = detailed_renderer.render(pos, projection_matrix, image, depth)
-        envmap_np = envmap.permute(1, 2, 0).numpy()[:, :, ::-1]
-        cv2.imshow("envmap", linear_to_srgb(envmap_np))
-        key = cv2.waitKey(0) & 0xFF
-        if key == ord('q'):
-            break
+        n_frames = rgb.shape[0]
+        n_objects = envmaps.shape[0]
+        reset_model = True
+        for i in range(n_frames):
+            rgb_np = rgb[i].permute(1, 2, 0).cpu().numpy()[:, :, ::-1]
+            depth_np = depth[i].repeat(3, 1, 1).permute(1, 2, 0).cpu().numpy()
+            depth_np /= np.max(depth_np)
+            envmap_np = envmaps[0].permute(1, 2, 0).cpu().numpy()[:, :, ::-1]
+
+            # for j in range(n_objects):
+            result, depth_pano = detailed_renderer.render(positions[0], projection_matrix, torch.inverse(pose[i]), rgb[i], depth[i])
+
+            cv2.imshow("rgb", rgb_np)
+            cv2.imshow("depth", depth_np)
+            cv2.imshow("lighting", envmap_np)
+            cv2.imshow("envmap", result.permute(1, 2, 0).detach().cpu().numpy()[:, :, ::-1])
+            key = cv2.waitKey(0) & 0xFF
+            while key != ord('n') and key != ord('q'):
+                key = cv2.waitKey(0) & 0xFF
+            if key == ord('q'):
+                break
     cv2.destroyAllWindows()
