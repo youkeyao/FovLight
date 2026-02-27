@@ -1,0 +1,24 @@
+﻿[1. FOV与材质交叉维度]
+FOV,材质,图片ID,展示次数,胜出次数,胜率%
+scene_001,default,gt,193,160,82.90%
+scene_001,default,all_1,194,71,36.60%
+scene_001,default,all_4,195,83,42.56%
+scene_001,default,fov,194,74,38.14%
+scene_002,default,gt,192,159,82.81%
+scene_002,default,all_1,194,40,20.62%
+scene_002,default,all_4,194,86,44.33%
+scene_002,default,fov,194,102,52.58%
+,[2. 仅按材质汇总]
+default,gt,385,319,82.86%
+default,all_1,388,111,28.61%
+default,all_4,389,169,43.44%
+default,fov,388,176,45.36%
+,[3. 仅按FOV汇总]
+scene_001,gt,193,160,82.90%
+scene_001,all_1,194,71,36.60%
+scene_001,all_4,195,83,42.56%
+scene_001,fov,194,74,38.14%
+scene_002,gt,192,159,82.81%
+scene_002,all_1,194,40,20.62%
+scene_002,all_4,194,86,44.33%
+scene_002,fov,194,102,52.58%

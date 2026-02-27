@@ -61,11 +61,11 @@ class EnvMapDatasets(Dataset):
         image = cv2.imread(image_path, -1)[:, :, 0:3][:, :, ::-1].astype(np.float32) / 255
         image = cv2.resize(image, (self.image_resolution[1], self.image_resolution[0]))
         # srgb to linear
-        image = np.where(
-            image <= 0.04045,
-            image / 12.92,
-            ((image + 0.055) / 1.055) ** 2.4
-        )
+        # image = np.where(
+        #     image <= 0.04045,
+        #     image / 12.92,
+        #     ((image + 0.055) / 1.055) ** 2.4
+        # )
 
         # Load depth
         depth = cv2.imread(depth_path, -1)[:, :, 0:1].astype(np.float32)

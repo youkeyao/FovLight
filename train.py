@@ -37,16 +37,18 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, accelera
     object_renderer = ObjectRenderer((256, 256))
     render_pos = torch.tensor([0, 0, -0.5])
     for batch in train_loader:
-        image = batch['image'][0]
-        depth = batch['depth'][0]
-        lighting = batch['lighting'][0]
-        pos = batch["pos"][0]
+        image = batch['image']
+        depth = batch['depth']
+        lighting = batch['lighting']
+        pos = batch["pos"]
 
         optimizer.zero_grad()
-        output = model(pos, projection_matrix, image, depth, use_detailed)
-        render_old = torch.from_numpy(object_renderer.render_sphere(render_pos, lighting))
-        render_new = torch.from_numpy(object_renderer.render_sphere(render_pos, output))
-        loss = criterion(output, lighting) + criterion(render_new, render_old)
+        output, _ = model(pos, projection_matrix, torch.eye(4), image, depth, use_detailed, True)
+        loss = 0
+        for b in range(output.shape[0]):
+            render_old = torch.from_numpy(object_renderer.render_sphere(render_pos, lighting[b]))
+            render_new = torch.from_numpy(object_renderer.render_sphere(render_pos, output[b]))
+            loss += criterion(output, lighting) + criterion(render_new, render_old)
 
         accelerator.backward(loss)
         optimizer.step()
@@ -64,8 +66,8 @@ def freeze_parameters(model, layer_names):
 def main(checkpoint_dir, model_param):
     batch_size = 1
     learning_rate = 1e-4
-    pre_epochs = 1500
-    num_epochs = 2000
+    pre_epochs = 150
+    num_epochs = 300
     saving_interval = 100
 
     accelerator = Accelerator(
@@ -125,20 +127,26 @@ def main(checkpoint_dir, model_param):
                     json.dump({"epoch": epoch+1}, f)
 
 if __name__ == "__main__":
-    main("checkpoints/voxel_0", ((168, 120, 128), (320, 640), 100, 4))
-    main("checkpoints/voxel_1", ((151, 108, 115), (320, 640), 100, 4))
-    main("checkpoints/voxel_2", ((134, 96, 102), (320, 640), 100, 4))
-    main("checkpoints/voxel_3", ((118, 84, 90), (320, 640), 100, 4))
-    main("checkpoints/voxel_4", ((101, 72, 77), (320, 640), 100, 4))
+    # main("checkpoints/voxel_0", ((168, 120, 128), (320, 640), 100, 4))
+    # main("checkpoints/voxel_1", ((151, 108, 115), (320, 640), 100, 4))
+    # main("checkpoints/voxel_2", ((134, 96, 102), (320, 640), 100, 4))
+    # main("checkpoints/voxel_3", ((118, 84, 90), (320, 640), 100, 4))
+    # main("checkpoints/voxel_4", ((101, 72, 77), (320, 640), 100, 4))
+    # main("checkpoints/voxel_5", ((84, 60, 64), (320, 640), 100, 4))
+    # main("checkpoints/voxel_6", ((67, 48, 51), (320, 640), 100, 4))
+    # main("checkpoints/voxel_7", ((50, 36, 38), (320, 640), 100, 4))
+    # main("checkpoints/voxel_8", ((34, 24, 26), (320, 640), 100, 4))
+    # main("checkpoints/voxel_9", ((17, 12, 13), (320, 640), 100, 4))
+
+    main("checkpoints/network_2", ((84, 60, 64), (320, 640), 100, 1))
+    main("checkpoints/network_1", ((84, 60, 64), (320, 640), 100, 2))
+    main("checkpoints/network_0", ((84, 60, 64), (320, 640), 100, 3))
+
     main("checkpoints/voxel_5", ((84, 60, 64), (320, 640), 100, 4))
     main("checkpoints/voxel_6", ((67, 48, 51), (320, 640), 100, 4))
     main("checkpoints/voxel_7", ((50, 36, 38), (320, 640), 100, 4))
     main("checkpoints/voxel_8", ((34, 24, 26), (320, 640), 100, 4))
     main("checkpoints/voxel_9", ((17, 12, 13), (320, 640), 100, 4))
-
-    main("checkpoints/network_2", ((168, 120, 128), (320, 640), 100, 1))
-    main("checkpoints/network_1", ((168, 120, 128), (320, 640), 100, 2))
-    main("checkpoints/network_0", ((168, 120, 128), (320, 640), 100, 3))
 
     # main("checkpoints/voxel", ((84, 60, 64), (320, 640), 100, True))
     # main("checkpoints/resolution", ((168, 120, 128), (80, 160), 100, True))

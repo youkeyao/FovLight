@@ -34,11 +34,11 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, accelera
     object_renderer = ObjectRenderer((256, 256))
     render_pos = torch.tensor([0, 0, -0.5])
     for batch in train_loader:
-        rgb = batch['rgb'][0]
-        depth = batch['depth'][0]
-        pose = batch['pose'][0]
-        lighting = batch["lighting"][0]
-        position = batch["position"][0]
+        rgb = batch['rgb'].permute(1, 0, 2, 3, 4)
+        depth = batch['depth'].permute(1, 0, 2, 3, 4)
+        pose = batch['pose'].permute(1, 0, 2, 3)
+        lighting = batch["lighting"]
+        position = batch["position"]
 
         n_frames = rgb.shape[0]
         reset_model = True
@@ -50,10 +50,10 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, accelera
 
             output, last = model(position, projection_matrix, T, rgb[i], depth[i], use_detailed, reset_model)
 
-            render_old = torch.from_numpy(object_renderer.render_sphere(render_pos, lighting))
-            render_new = torch.from_numpy(object_renderer.render_sphere(render_pos, output))
-
-            loss += criterion(output, lighting) + 0.3 * criterion(render_new, render_old)
+            for b in range(output.shape[0]):
+                render_old = torch.from_numpy(object_renderer.render_sphere(render_pos, lighting[b]))
+                render_new = torch.from_numpy(object_renderer.render_sphere(render_pos, output[b]))
+                loss += criterion(output, lighting) + 0.3 * criterion(render_new, render_old)
             if i > 0:
                 loss += 0.01 * criterion(output, last)
 

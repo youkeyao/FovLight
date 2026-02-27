@@ -1,0 +1,55 @@
+﻿=== 数据记录开始于 2025-12-31 16:51:23 ===
+=== 数据记录开始于 2025/12/31 16:51:23 ===
+Timestamp: 2025/12/31 16:51:23
+Experimenter: 杨瑾瑶
+PairIndex, GroupPath, Image_Left, Image_Right, UserChoice, Duration
+0, scene_002, fov, all_1, all_1, 31.003
+1, scene_001, fov, all_1, fov, 8.823
+2, scene_002, all_1, all_4, all_4, 2.723
+3, scene_001, gt, all_1, gt, 1.373
+4, scene_001, gt, all_4, gt, 2.420
+5, scene_001, fov, all_4, fov, 5.710
+6, scene_001, gt, all_4, gt, 2.345
+7, scene_002, all_4, gt, gt, 1.472
+8, scene_001, all_4, fov, all_4, 1.818
+9, scene_001, fov, all_1, all_1, 1.759
+10, scene_001, all_4, all_1, all_4, 2.088
+11, scene_001, all_4, gt, gt, 1.334
+12, scene_002, all_1, fov, all_1, 2.463
+13, scene_001, all_1, all_4, all_1, 1.084
+14, scene_002, gt, fov, gt, 1.247
+15, scene_002, gt, all_4, gt, 1.131
+16, scene_001, all_1, gt, gt, 1.397
+17, scene_001, fov, all_1, fov, 1.009
+18, scene_002, all_1, all_4, all_4, 1.031
+19, scene_002, fov, all_1, fov, 1.558
+20, scene_001, gt, all_1, gt, 1.776
+21, scene_002, all_4, all_1, all_4, 1.531
+22, scene_002, gt, all_1, gt, 0.800
+23, scene_001, fov, gt, gt, 1.151
+24, scene_001, gt, fov, gt, 0.700
+25, scene_002, fov, all_4, fov, 0.625
+26, scene_002, fov, gt, gt, 0.920
+27, scene_002, all_1, gt, gt, 1.317
+28, scene_001, gt, all_1, gt, 0.829
+29, scene_002, gt, all_1, gt, 0.843
+30, scene_001, gt, fov, gt, 1.008
+31, scene_002, all_1, fov, fov, 1.178
+32, scene_002, gt, all_1, gt, 1.187
+33, scene_002, fov, all_4, all_4, 1.061
+34, scene_002, all_4, gt, gt, 1.991
+35, scene_001, all_4, fov, fov, 1.041
+36, scene_001, all_1, all_4, all_1, 1.293
+37, scene_002, fov, all_4, all_4, 2.544
+38, scene_002, all_4, all_1, all_4, 0.864
+39, scene_002, fov, gt, gt, 1.264
+40, scene_001, all_4, all_1, all_4, 1.168
+41, scene_001, fov, all_4, all_4, 1.856
+42, scene_002, all_4, fov, fov, 2.650
+43, scene_001, all_4, gt, gt, 1.132
+44, scene_001, gt, fov, gt, 2.341
+45, scene_002, fov, gt, gt, 0.790
+46, scene_001, fov, all_1, fov, 0.985
+47, scene_002, gt, all_4, gt, 1.015
+=== 数据记录结束于 2025/12/31 16:59:36 ===
+=== 数据记录结束于 2025-12-31 16:59:36 ===

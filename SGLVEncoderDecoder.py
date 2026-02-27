@@ -13,10 +13,11 @@ class GRU3D(nn.Module):
     def forward(self, x, h_prev):
         if h_prev is None:
             h_prev = torch.zeros_like(x, device=x.device)
-        combined = torch.cat([x, h_prev], dim=0)
+        # x, h_prev shape: (B, C, D, H, W) -> concat on channel dim
+        combined = torch.cat([x, h_prev], dim=1)
         z = torch.sigmoid(self.conv_z(combined))
         r = torch.sigmoid(self.conv_r(combined))
-        combined_r = torch.cat([x, r * h_prev], dim=0)
+        combined_r = torch.cat([x, r * h_prev], dim=1)
         h_tilde = torch.tanh(self.conv_h(combined_r))
         h_new = (1 - z) * h_prev + z * h_tilde
         return h_new
@@ -112,8 +113,8 @@ class SGLVEncoderDecoder(nn.Module):
             self.h0 = self.h0.detach()
         if self.h1 is not None:
             self.h1 = self.h1.detach()
-
-        Ve = volume[4, :, :]
+        # volume expected shape: (B, 5, D, H, W)
+        Ve = volume[:, 4:5, ...]
         x = self.conv(volume)
         features = x
         self.h0 = self.gru0(features, self.h0)
@@ -123,29 +124,28 @@ class SGLVEncoderDecoder(nn.Module):
             features = self.encoder2(features)
         if self.level > 3:
             features = self.encoder3(features)
-            self.h1 = self.gru1(features, self.h1)
-            features = self.decoder3(self.h1)
-        else:
+        if self.level > 1:
             self.h1 = self.gru1(features, self.h1)
             features = self.h1
+        if self.level > 3:
+            features = self.decoder3(features)
         if self.level > 2:
             features = self.decoder2(features)
-        else:
-            self.h1 = self.gru1(features, self.h1)
-            features = self.h1
         if self.level > 1:
             features = self.decoder1(features)
         x = features + self.h0
         # 各参数预测
-        color = self.color_head(x) * (Ve+1)
-        alpha = self.alpha_head(x) * (Ve+1)
-        w = self.w_head(x) * (Ve+1)
-        lamda = self.lamda_head(x) * (Ve+1)
-        s = self.s_head(x) * (Ve+1)
-        s = F.normalize(s, p=2, dim=0)
+        # Heads output shape: (B, C_out, D, H, W). Ve shape: (B,1,D,H,W)
+        color = self.color_head(x) * (Ve + 1)
+        alpha = self.alpha_head(x) * (Ve + 1)
+        w = self.w_head(x) * (Ve + 1)
+        lamda = self.lamda_head(x) * (Ve + 1)
+        s = self.s_head(x) * (Ve + 1)
+        s = F.normalize(s, p=2, dim=1)
         u = self.u_head(x)
 
-        return torch.cat([color, alpha, w, lamda, s], dim=0), u
+        # Concatenate along channel dimension
+        return torch.cat([color, alpha, w, lamda, s], dim=1), u
     
     def reset(self):
         self.h0 = None

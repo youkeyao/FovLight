@@ -14,10 +14,11 @@ class GRU2D(nn.Module):
     def forward(self, x, h_prev):
         if h_prev is None:
             h_prev = torch.zeros_like(x, device=x.device)
-        combined = torch.cat([x, h_prev], dim=0)
+        # x, h_prev shape: (B, C, H, W) -> concat on channel dim
+        combined = torch.cat([x, h_prev], dim=1)
         r = torch.sigmoid(self.reset_gate(combined))
         z = torch.sigmoid(self.update_gate(combined))
-        combined_r = torch.cat([x, r * h_prev], dim=0)
+        combined_r = torch.cat([x, r * h_prev], dim=1)
         h_tilde = torch.tanh(self.out_gate(combined_r))
         h_next = (1 - z) * h_prev + z * h_tilde
         return h_next
@@ -84,8 +85,8 @@ class BlendingNetwork(nn.Module):
             self.h0 = self.h0.detach()
         if self.h1 is not None:
             self.h1 = self.h1.detach()
-
-        input = torch.cat([prev_hdr, hdr_env, ldr_env, mask, 1 - mask, depth_pano, depth_accum], dim=0)
+        # Inputs expected shape: (B, C, H, W)
+        input = torch.cat([prev_hdr, hdr_env, ldr_env, mask, 1 - mask, depth_pano, depth_accum], dim=1)
         x = self.conv(input)
         features = x
         self.h0 = self.gru0(features, self.h0)
@@ -95,22 +96,19 @@ class BlendingNetwork(nn.Module):
             features = self.encoder2(features)
         if self.level > 3:
             features = self.encoder3(features)
-            self.h1 = self.gru1(features, self.h1)
-            features = self.decoder3(self.h1)
-        else:
+        if self.level > 1:
             self.h1 = self.gru1(features, self.h1)
             features = self.h1
+        if self.level > 3:
+            features = self.decoder3(features)
         if self.level > 2:
             features = self.decoder2(features)
-        else:
-            self.h1 = self.gru1(features, self.h1)
-            features = self.h1
         if self.level > 1:
             features = self.decoder1(features)
         x = features
         # 各参数预测
         w = self.weight_head(x)
-        indicator = ((depth_accum - depth_pano) < 0.25).float()
+        indicator = ((depth_pano - depth_accum) < 0.25).float()
         Lm = torch.clamp(w - indicator, min=0.0)
         one = torch.ones_like(Lm)
         invisible_comb = (1.0 - weight_accum) * hdr_env + weight_accum * prev_hdr

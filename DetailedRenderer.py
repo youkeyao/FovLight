@@ -264,56 +264,74 @@ class DetailedRenderer:
 
     def render(self, origin, P, V, input_image, depth_map):
         with torch.no_grad():
-            vertices, faces, tex_coords = create_mesh_from_depth(
-                depth_map, P, V, depth_threshold=0.5
-            )
+            # Support batched input: input_image (B, C, H, W) or (C, H, W)
+            single = False
+            if input_image.dim() == 3:
+                input_image = input_image.unsqueeze(0)
+                depth_map = depth_map.unsqueeze(0)
+                origin = origin.unsqueeze(0)
+                single = True
 
-            # Create mesh
-            textures = TexturesUV(
-                maps=[input_image.permute(1, 2, 0)] * 6,
-                faces_uvs=[faces] * 6,
-                verts_uvs=[tex_coords] * 6
-            )
-            mesh = Meshes(
-                verts=[vertices] * 6,
-                faces=[faces] * 6,
-                textures=textures
-            )
-            cubemap_images, depth_world = render_cube_maps(
-                mesh, origin, input_image.device, resolution=512, fov=90
-            )
-            envmap = create_equirectangular_from_cubemap(cubemap_images, self.resolution)
-            depth_pano = create_equirectangular_from_cubemap(depth_world, self.resolution)
+            B = input_image.shape[0]
+            envmaps = []
+            depth_panos = []
+            for b in range(B):
+                P_b = P[b] if P.dim() == 3 else P
+                V_b = V[b] if V.dim() == 3 else V
+                vertices, faces, tex_coords = create_mesh_from_depth(
+                    depth_map[b], P_b, V_b, depth_threshold=0.5
+                )
 
-            # save_obj("output.obj", verts=vertices, faces=faces, verts_uvs=tex_coords, faces_uvs=faces, texture_map=input_image.permute(1, 2, 0))
+                # Create mesh
+                textures = TexturesUV(
+                    maps=[input_image[b].permute(1, 2, 0)] * 6,
+                    faces_uvs=[faces] * 6,
+                    verts_uvs=[tex_coords] * 6
+                )
+                mesh = Meshes(
+                    verts=[vertices] * 6,
+                    faces=[faces] * 6,
+                    textures=textures
+                )
+                cubemap_images, depth_world = render_cube_maps(
+                    mesh, origin[b], input_image.device, resolution=512, fov=90
+                )
+                envmap = create_equirectangular_from_cubemap(cubemap_images, self.resolution)
+                depth_pano = create_equirectangular_from_cubemap(depth_world, self.resolution)
+                envmaps.append(envmap)
+                depth_panos.append(depth_pano)
 
-            return envmap, depth_pano
+            envmaps = torch.stack(envmaps, dim=0)
+            depth_panos = torch.stack(depth_panos, dim=0)
+
+            if single:
+                return envmaps[0], depth_panos[0]
+            return envmaps, depth_panos
 
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     detailed_renderer = DetailedRenderer()
-    projection_matrix = create_projection_matrix(120, 832/400, 0.1, 20).to(device)
+    projection_matrix = create_projection_matrix(120, 832/400, 0.1, 20)
     dataset = EnvMapVideoDatasets(root_dir='/mnt/data/youkeyao/Datasets/EnvMapVideo')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:
-        rgb = batch['rgb'][0].to(device)
-        depth = batch['depth'][0].to(device)
-        pose = batch['pose'][0].to(device)
-        envmaps = batch["envmaps"][0].to(device)
-        positions = batch["positions"][0].to(device)
+        rgb = batch['rgb'].permute(1, 0, 2, 3, 4)
+        depth = batch['depth'].permute(1, 0, 2, 3, 4)
+        pose = batch['pose'].permute(1, 0, 2, 3)
+        lighting = batch["lighting"]
+        position = batch["position"]
 
         n_frames = rgb.shape[0]
-        n_objects = envmaps.shape[0]
         reset_model = True
         for i in range(n_frames):
-            rgb_np = rgb[i].permute(1, 2, 0).cpu().numpy()[:, :, ::-1]
-            depth_np = depth[i].repeat(3, 1, 1).permute(1, 2, 0).cpu().numpy()
+            rgb_np = rgb[i, 0].permute(1, 2, 0).cpu().numpy()[:, :, ::-1]
+            depth_np = depth[i, 0].repeat(3, 1, 1).permute(1, 2, 0).cpu().numpy()
             depth_np /= np.max(depth_np)
-            envmap_np = envmaps[0].permute(1, 2, 0).cpu().numpy()[:, :, ::-1]
+            envmap_np = lighting[0].permute(1, 2, 0).cpu().numpy()[:, :, ::-1]
 
             # for j in range(n_objects):
-            result, depth_pano = detailed_renderer.render(positions[0], projection_matrix, torch.inverse(pose[i]), rgb[i], depth[i])
+            result, depth_pano = detailed_renderer.render(position[0], projection_matrix, torch.inverse(pose[i, 0]), rgb[i, 0], depth[i, 0])
 
             cv2.imshow("rgb", rgb_np)
             cv2.imshow("depth", depth_np)

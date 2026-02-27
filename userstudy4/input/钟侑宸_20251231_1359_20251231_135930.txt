@@ -1,0 +1,55 @@
+﻿=== 数据记录开始于 2025-12-31 13:59:30 ===
+=== 数据记录开始于 2025/12/31 13:59:30 ===
+Timestamp: 2025/12/31 13:59:30
+Experimenter: 钟侑宸
+PairIndex, GroupPath, Image_Left, Image_Right, UserChoice, Duration
+0, scene_001, gt, all_1, all_1, 64.227
+1, scene_002, gt, all_1, all_1, 1.120
+2, scene_002, all_1, fov, fov, 4.035
+3, scene_001, fov, all_1, all_1, 23.130
+4, scene_001, all_4, fov, fov, 1.040
+5, scene_001, all_1, all_4, all_4, 2.049
+6, scene_001, all_1, all_4, all_4, 1.787
+7, scene_002, gt, all_4, all_4, 0.791
+8, scene_001, all_1, fov, all_1, 0.714
+9, scene_001, fov, all_1, all_1, 1.879
+10, scene_002, all_4, gt, all_4, 2.145
+11, scene_002, fov, all_4, fov, 0.927
+12, scene_001, fov, all_4, fov, 0.744
+13, scene_001, fov, gt, gt, 1.160
+14, scene_002, fov, all_4, fov, 1.080
+15, scene_002, all_4, all_1, all_1, 1.457
+16, scene_002, fov, gt, fov, 1.479
+17, scene_001, all_1, gt, gt, 1.317
+18, scene_001, all_4, gt, gt, 0.765
+19, scene_001, fov, gt, gt, 0.969
+20, scene_002, fov, all_4, fov, 0.930
+21, scene_002, gt, all_1, gt, 0.523
+22, scene_002, all_4, gt, gt, 19.941
+23, scene_002, gt, all_4, gt, 3.160
+24, scene_002, fov, all_1, all_1, 1.390
+25, scene_001, gt, fov, gt, 0.868
+26, scene_002, gt, fov, gt, 0.451
+27, scene_002, all_1, gt, all_1, 3.035
+28, scene_002, fov, all_4, fov, 0.589
+29, scene_001, all_1, fov, all_1, 1.443
+30, scene_001, all_1, gt, all_1, 0.827
+31, scene_001, all_4, fov, all_4, 0.732
+32, scene_002, all_1, fov, fov, 0.775
+33, scene_001, all_1, gt, all_1, 0.971
+34, scene_001, all_4, all_1, all_4, 2.843
+35, scene_001, all_4, gt, gt, 0.458
+36, scene_001, gt, all_4, gt, 0.946
+37, scene_002, all_1, fov, fov, 1.058
+38, scene_002, all_1, all_4, all_4, 0.802
+39, scene_001, gt, fov, gt, 1.405
+40, scene_001, gt, all_4, gt, 0.940
+41, scene_001, all_1, all_4, all_4, 1.092
+42, scene_001, fov, all_4, fov, 1.326
+43, scene_002, fov, gt, gt, 0.545
+44, scene_002, all_4, all_1, all_1, 0.539
+45, scene_002, all_4, all_1, all_1, 0.188
+46, scene_002, all_1, gt, gt, 0.415
+47, scene_002, fov, gt, gt, 0.627
+=== 数据记录结束于 2025/12/31 14:08:38 ===
+=== 数据记录结束于 2025-12-31 14:08:38 ===

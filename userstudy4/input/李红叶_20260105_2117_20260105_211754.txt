@@ -1,0 +1,55 @@
+﻿=== 数据记录开始于 2026-01-05 21:17:54 ===
+=== 数据记录开始于 2026/1/5 21:17:54 ===
+Timestamp: 2026/01/05 21:17:54
+Experimenter: 李红叶
+PairIndex, GroupPath, Image_Left, Image_Right, UserChoice, Duration
+0, scene_002, all_4, all_1, all_1, 0.732
+1, scene_001, gt, fov, gt, 1.141
+2, scene_001, all_1, fov, all_1, 0.966
+3, scene_002, fov, gt, fov, 0.685
+4, scene_002, gt, all_4, all_4, 0.988
+5, scene_001, all_4, fov, fov, 0.481
+6, scene_001, fov, gt, fov, 0.805
+7, scene_001, all_1, all_4, all_1, 0.724
+8, scene_001, all_1, all_4, all_1, 1.117
+9, scene_002, gt, all_4, all_4, 1.637
+10, scene_001, fov, all_4, all_4, 1.399
+11, scene_001, all_4, all_1, all_4, 0.913
+12, scene_002, all_4, fov, fov, 0.693
+13, scene_001, fov, all_1, all_1, 0.949
+14, scene_002, all_4, fov, fov, 1.067
+15, scene_002, all_4, all_1, all_1, 0.969
+16, scene_002, all_4, all_1, all_1, 4.875
+17, scene_001, all_4, gt, gt, 5.829
+18, scene_002, gt, all_4, all_4, 0.626
+19, scene_001, gt, fov, gt, 0.981
+20, scene_002, fov, gt, gt, 1.072
+21, scene_001, all_1, all_4, all_1, 1.330
+22, scene_001, fov, gt, fov, 0.736
+23, scene_002, all_4, all_1, all_4, 0.590
+24, scene_002, fov, all_4, all_4, 1.794
+25, scene_002, gt, all_1, gt, 0.514
+26, scene_002, gt, all_1, gt, 0.412
+27, scene_002, fov, gt, fov, 0.497
+28, scene_002, gt, all_4, all_4, 0.487
+29, scene_002, all_1, fov, all_1, 0.439
+30, scene_001, all_1, gt, all_1, 0.697
+31, scene_001, all_4, gt, all_4, 0.465
+32, scene_001, gt, all_4, gt, 1.385
+33, scene_002, all_4, fov, all_4, 0.590
+34, scene_002, gt, fov, gt, 0.448
+35, scene_001, fov, all_1, fov, 0.464
+36, scene_001, fov, all_4, fov, 0.442
+37, scene_002, fov, all_1, all_1, 4.458
+38, scene_001, all_4, fov, all_4, 0.483
+39, scene_002, all_1, fov, all_1, 0.920
+40, scene_001, all_1, gt, all_1, 1.345
+41, scene_001, fov, all_1, fov, 15.929
+42, scene_001, gt, all_1, gt, 0.370
+43, scene_001, all_1, gt, all_1, 0.524
+44, scene_002, all_1, fov, all_1, 0.698
+45, scene_002, all_1, gt, all_1, 0.368
+46, scene_002, all_1, gt, all_1, 0.456
+47, scene_001, all_4, gt, all_4, 0.722
+=== 数据记录结束于 2026/1/5 21:25:14 ===
+=== 数据记录结束于 2026-01-05 21:25:14 ===

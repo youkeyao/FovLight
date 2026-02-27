@@ -160,7 +160,13 @@ def main():
     plt.savefig("quality.png", dpi=300, bbox_inches='tight')
     
 if __name__ == "__main__":
-    main()
+    # main()
+
+    gt = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/scene_001/gt/sphere.png", -1)[:, :, ::-1].astype(np.float32) / 255
+    im = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/scene_001/qint8/sphere.png", -1)[:, :, ::-1].astype(np.float32) / 255
+    print(psnr(gt, im, data_range=1))
+    print(ms_ssim(ms_ssim_input(gt), ms_ssim_input(im), data_range=1))
+    print(loss_fn_alex(lpips_input(gt), lpips_input(im)).item())
 
     # gt = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/0/gt.png", -1)[1700:2150, 2200:2500, 0:3][:, :, ::-1].astype(np.float32) / 255
     # im = cv2.imread("/mnt/data/youkeyao/FovLight/pilot/0/voxel_8.png", -1)[1700:2150, 2200:2500, 0:3][:, :, ::-1].astype(np.float32) / 255

@@ -1,0 +1,13 @@
+﻿=== 数据记录开始于 2025-12-31 16:47:31 ===
+=== 数据记录开始于 2025/12/31 16:47:31 ===
+Timestamp: 2025/12/31 16:47:31
+Experimenter: 连炜乐
+PairIndex, GroupPath, Image_Left, Image_Right, UserChoice, Duration
+0, scene_001, fov, all_4, all_4, 4.276
+1, scene_001, all_4, fov, fov, 0.798
+2, scene_001, all_4, all_1, all_1, 0.429
+3, scene_002, all_1, fov, fov, 0.418
+4, scene_001, all_1, gt, gt, 0.904
+5, scene_002, fov, all_4, all_4, 0.597
+6, scene_002, all_1, all_4, all_4, 0.326
+=== 数据记录结束于 2025-12-31 16:48:50 ===

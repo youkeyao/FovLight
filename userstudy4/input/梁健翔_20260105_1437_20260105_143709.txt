@@ -1,0 +1,55 @@
+﻿=== 数据记录开始于 2026-01-05 14:37:09 ===
+=== 数据记录开始于 2026/1/5 14:37:09 ===
+Timestamp: 2026/01/05 14:37:09
+Experimenter: 梁健翔
+PairIndex, GroupPath, Image_Left, Image_Right, UserChoice, Duration
+0, scene_001, all_4, gt, all_4, 2.976
+1, scene_001, all_1, all_4, all_4, 0.817
+2, scene_002, fov, gt, gt, 0.905
+3, scene_002, gt, all_4, gt, 0.539
+4, scene_002, all_1, gt, gt, 0.440
+5, scene_002, gt, all_1, gt, 0.342
+6, scene_002, all_1, all_4, all_4, 0.406
+7, scene_001, all_4, gt, all_4, 0.542
+8, scene_002, gt, all_1, gt, 0.347
+9, scene_001, all_4, fov, all_4, 0.788
+10, scene_002, all_4, fov, all_4, 0.334
+11, scene_001, gt, fov, gt, 0.478
+12, scene_002, gt, fov, gt, 0.282
+13, scene_001, all_1, fov, fov, 0.362
+14, scene_002, all_1, gt, gt, 0.318
+15, scene_002, all_1, all_4, all_4, 0.694
+16, scene_002, fov, all_4, fov, 0.333
+17, scene_001, all_1, all_4, all_4, 0.398
+18, scene_001, all_1, gt, gt, 0.306
+19, scene_002, all_1, fov, fov, 0.348
+20, scene_001, fov, all_1, fov, 0.444
+21, scene_001, all_1, gt, gt, 0.299
+22, scene_001, fov, all_4, fov, 0.472
+23, scene_001, all_1, gt, gt, 0.360
+24, scene_001, fov, all_1, fov, 0.307
+25, scene_002, fov, gt, fov, 0.322
+26, scene_001, fov, all_4, fov, 0.604
+27, scene_002, all_4, gt, gt, 0.515
+28, scene_001, gt, fov, gt, 0.332
+29, scene_001, gt, fov, gt, 0.369
+30, scene_001, all_4, fov, fov, 0.823
+31, scene_002, all_1, fov, fov, 0.312
+32, scene_001, fov, gt, gt, 0.319
+33, scene_002, gt, all_4, gt, 0.370
+34, scene_002, all_1, fov, fov, 0.229
+35, scene_001, all_4, gt, gt, 0.681
+36, scene_002, all_4, all_1, all_4, 0.258
+37, scene_002, all_1, all_4, all_4, 0.266
+38, scene_002, gt, all_4, gt, 0.480
+39, scene_001, all_4, gt, gt, 0.264
+40, scene_002, fov, all_4, all_4, 0.172
+41, scene_001, all_1, all_4, all_4, 0.260
+42, scene_002, all_4, fov, fov, 0.612
+43, scene_002, fov, gt, gt, 0.213
+44, scene_001, fov, all_1, fov, 0.080
+45, scene_001, gt, all_1, gt, 0.781
+46, scene_002, all_1, fov, fov, 0.270
+47, scene_001, all_1, all_4, all_1, 1.510
+=== 数据记录结束于 2026/1/5 14:43:31 ===
+=== 数据记录结束于 2026-01-05 14:43:31 ===
