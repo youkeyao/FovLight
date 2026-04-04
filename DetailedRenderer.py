@@ -1,3 +1,8 @@
+"""细节环境图渲染模块。
+
+通过深度反投影构网格，渲染立方体贴图后再转换为等距柱状图。
+"""
+
 import cv2
 import torch
 import torch.nn.functional as F
@@ -19,10 +24,11 @@ from EnvMapVideoDatasets import EnvMapVideoDatasets
 from utils import create_projection_matrix, linear_to_srgb
 
 def create_mesh_from_depth(depth_map, P, V, depth_threshold=0.1):
+    """由深度图反投影并构建三角网格。"""
     _, H, W = depth_map.shape
     device = depth_map.device
 
-    # Back Projection
+    # 深度反投影到三维点云。
     v_coords = (torch.arange(H, device=device) - (H-1) / 2) / (H-1) * 2
     u_coords = (torch.arange(W, device=device) - (W-1) / 2) / (W-1) * 2
     v, u = torch.meshgrid(v_coords, u_coords, indexing='ij')
@@ -33,7 +39,7 @@ def create_mesh_from_depth(depth_map, P, V, depth_threshold=0.1):
     vertices = torch.einsum("hwk, kj -> hwj", vertices, torch.inverse(V).T)
     vertices = vertices[..., :3]
 
-    # Generate triangular faces
+    # 根据邻域深度一致性生成三角面片。
     depth_map_2d = depth_map[0]
     d00 = depth_map_2d[:-1, :-1]
     d01 = depth_map_2d[:-1, 1:]
@@ -65,7 +71,7 @@ def create_mesh_from_depth(depth_map, P, V, depth_threshold=0.1):
 
         faces = triangles.reshape(-1, 3)
 
-    # Normalized texture coordinates
+    # 生成归一化纹理坐标。
     tex_u = (u + 1) / 2
     tex_v = 1 - (v + 1) / 2
     tex_coords = torch.stack((tex_u, tex_v), dim=-1)
@@ -73,10 +79,11 @@ def create_mesh_from_depth(depth_map, P, V, depth_threshold=0.1):
     return vertices.reshape(-1, 3), faces.reshape(-1, 3), tex_coords.reshape(-1, 2)
 
 def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
+    """从六个朝向渲染立方体贴图与对应深度。"""
     camera_pos = origin.repeat(6, 1)
 
-    # Define 6 directions for cubemap (Right, Left, Up, Down, Front, Back)
-    # Note: PyTorch3D uses different coordinate system than Open3D
+    # 定义立方体贴图六个观察方向（右、左、上、下、前、后）。
+    # 注意：PyTorch3D 与 Open3D 的坐标系约定不同。
     directions = torch.tensor([
         [1, 0, 0],
         [-1, 0, 0],
@@ -95,13 +102,13 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
         [0, 1, 0],
     ], dtype=torch.float32, device=device)
 
-    # Setup rasterizer
+    # 配置光栅化参数。
     raster_settings = RasterizationSettings(
         image_size=resolution,
         blur_radius=0.0,
     )
 
-    # Setup renderer
+    # 构建渲染器。
     renderer = MeshRenderer(
         rasterizer=MeshRasterizer(
             cameras=None,
@@ -134,7 +141,7 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
     renderer.rasterizer.cameras = cameras
     renderer.shader.cameras = cameras
 
-    # Render the scene
+    # 执行渲染并输出颜色与深度。
     with torch.no_grad():
         fragments = renderer.rasterizer(mesh)
         depth_world = fragments.zbuf[..., 0].unsqueeze(1)
@@ -144,6 +151,7 @@ def render_cube_maps(mesh, origin, device, resolution=512, fov=90):
     return rgb, depth_world
 
 def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
+    """将立方体贴图拼接采样为等距柱状图。"""
     height, width = resolution
     device = cubemap_images.device
     C = cubemap_images.shape[1]
@@ -259,12 +267,15 @@ def create_equirectangular_from_cubemap(cubemap_images, resolution=(160, 320)):
     return equirect
 
 class DetailedRenderer:
+    """基于几何重建的细节环境图渲染器。"""
+
     def __init__(self, resolution=(160, 320)):
         self.resolution = resolution
 
     def render(self, origin, P, V, input_image, depth_map):
+        """渲染细节环境图和对应全景深度。"""
         with torch.no_grad():
-            # Support batched input: input_image (B, C, H, W) or (C, H, W)
+            # 兼容批量输入：(B, C, H, W) 或单帧输入：(C, H, W)。
             single = False
             if input_image.dim() == 3:
                 input_image = input_image.unsqueeze(0)
@@ -282,7 +293,7 @@ class DetailedRenderer:
                     depth_map[b], P_b, V_b, depth_threshold=0.5
                 )
 
-                # Create mesh
+                # 构建带纹理的网格。
                 textures = TexturesUV(
                     maps=[input_image[b].permute(1, 2, 0)] * 6,
                     faces_uvs=[faces] * 6,

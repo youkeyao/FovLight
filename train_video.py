@@ -1,3 +1,8 @@
+"""视频序列训练入口脚本。
+
+该文件按时间序列输入 RGB/深度/位姿，训练时引入跨帧一致性约束。
+"""
+
 import os
 import torch
 from torch.utils.data import ConcatDataset
@@ -11,12 +16,13 @@ from accelerate.utils import DistributedDataParallelKwargs
 from tqdm import tqdm
 from EnvMapDatasets import EnvMapDatasets
 from EnvMapVideoDatasets import EnvMapVideoDatasets
-from KePanoLightDataset import KePanoLightDataset
 from LightEstimationModel import LightingEstimationModel
 from ObjectRenderer import ObjectRenderer
 from utils import create_projection_matrix
 
 class LogL2Loss(torch.nn.Module):
+    """基于 log1p 的加权 L2 损失。"""
+
     def __init__(self):
         super().__init__()
 
@@ -30,9 +36,11 @@ class LogL2Loss(torch.nn.Module):
         return torch.sum(w * mask * ((log_input - log_target) ** 2) + (1 - w) * (~mask) * ((log_input - log_target) ** 2))
 
 def train(model, projection_matrix, train_loader, criterion, optimizer, accelerator, use_detailed):
+    """执行视频批次训练，逐帧前向并累积损失。"""
     total_loss = 0
     object_renderer = ObjectRenderer((256, 256))
     render_pos = torch.tensor([0, 0, -0.5])
+    # 逐视频样本训练：先按时间维拆分，再逐帧累计损失。
     for batch in train_loader:
         rgb = batch['rgb'].permute(1, 0, 2, 3, 4)
         depth = batch['depth'].permute(1, 0, 2, 3, 4)
@@ -43,6 +51,7 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, accelera
         n_frames = rgb.shape[0]
         reset_model = True
 
+        # 按时间顺序前向传播，维护模型时序状态。
         for i in range(n_frames):
             loss = 0
             optimizer.zero_grad()
@@ -66,6 +75,7 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, accelera
     return total_loss / len(train_loader)
 
 def freeze_parameters(model, layer_names):
+    """冻结指定模块参数，用于两阶段训练。"""
     for name, param in model.named_parameters():
         if any(layer_name in name for layer_name in layer_names):
             param.requires_grad = False
@@ -73,6 +83,7 @@ def freeze_parameters(model, layer_names):
                 param.data = param.data.detach()
 
 def main(checkpoint_dir, model_param):
+    """训练主流程：配置、断点恢复、低频/高频阶段训练。"""
     batch_size = 1
     learning_rate = 1e-4
     pre_epochs = 1500

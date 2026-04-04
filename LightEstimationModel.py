@@ -1,3 +1,8 @@
+"""光照估计主模型。
+
+组合体素编码器、体渲染器、细节渲染器与融合网络，支持单帧与序列推理。
+"""
+
 import cv2
 import time
 import numpy as np
@@ -13,8 +18,9 @@ from SGLVRenderer import SGLVRenderer
 from DetailedRenderer import DetailedRenderer
 from BlendingNetwork import BlendingNetwork
 
-# 主模型
 class LightingEstimationModel(nn.Module):
+    """光照估计网络封装。"""
+
     def __init__(self, voxel_resolution=(84, 60, 64), output_resolution=(320, 640), sample_num=100, level=4):
         super().__init__()
 
@@ -27,7 +33,7 @@ class LightingEstimationModel(nn.Module):
         self.detailed_rednerer = DetailedRenderer(output_resolution)
         self.blending_network = BlendingNetwork(level)
 
-        # RNN 状态缓存 (will be created per-batch during first forward)
+        # RNN 状态缓存（首次前向时按 batch 自动创建）
         self.volume = None
         self.sglv_volume = None
         self.prev_envmap = None
@@ -35,11 +41,12 @@ class LightingEstimationModel(nn.Module):
         self.weight_accum = None
 
     def process_volume(self, P, V, input_image, depth_map):
+        """将输入图像/深度投影到体素空间并更新时序体。"""
         device = next(self.sglv_encoder_decoder.parameters()).device
         B = input_image.shape[0]
 
         with torch.no_grad():
-            # Initialize voxel range and stored volumes per-batch
+            # 按 batch 初始化体素空间范围与缓存体。
             if self.voxel_range is None or self.voxel_range.shape[0] != B:
                 template_range = torch.tensor(
                     [[-1.1, -0.8, -1.2], [1.1, 0.8, 0.5]],
@@ -53,7 +60,7 @@ class LightingEstimationModel(nn.Module):
 
             resolution_tensor = torch.tensor(self.voxel_resolution, device=device, dtype=depth_map.dtype)
 
-            # Prepare per-batch volumes
+            # 为每个样本单独构建体素观测。
             volumes = []
 
             for b in range(B):
@@ -66,7 +73,7 @@ class LightingEstimationModel(nn.Module):
                 ]
                 voxel_pos_x, voxel_pos_y, voxel_pos_z = torch.meshgrid(*coords, indexing='ij')
 
-                # Homogeneous coordinates for points: (N_points, 4)
+                # 组装齐次坐标点云，形状为 (N_points, 4)。
                 points = torch.stack([
                     voxel_pos_x.flatten(),
                     voxel_pos_y.flatten(),
@@ -74,10 +81,10 @@ class LightingEstimationModel(nn.Module):
                     torch.ones_like(voxel_pos_z.flatten())
                 ], dim=1)
 
-                # Determine projection matrix for this batch element
+                # 选择当前样本对应的投影矩阵与位姿矩阵。
                 P_b = P[b] if P.dim() == 3 else P
                 V_b = V[b] if V.dim() == 3 else V
-                # Project points
+                # 将体素点投影到图像平面。
                 proj_pos = torch.matmul(points, (P_b @ V_b).T)
                 proj_pos = proj_pos / proj_pos[:, 2:3]
 
@@ -85,7 +92,7 @@ class LightingEstimationModel(nn.Module):
                 uv_normalized[:, 0] = proj_pos[:, 0]
                 uv_normalized[:, 1] = -proj_pos[:, 1]
 
-                # grid for sampling: (1, 1, N_points, 2)
+                # 构建用于 grid_sample 的采样网格，形状为 (1, 1, N_points, 2)。
                 grid_sample = uv_normalized.view(1, 1, -1, 2)
 
                 in_img = input_image[b].unsqueeze(0)
@@ -135,14 +142,20 @@ class LightingEstimationModel(nn.Module):
                 vol[4] = e_channel
                 volumes.append(vol)
 
-            # Stack volumes into (B,5,D,H,W)
+            # 聚合为批量体，形状为 (B, 5, D, H, W)。
             volumes = torch.stack(volumes, dim=0)
 
         new_volume, u = self.sglv_encoder_decoder(volumes.detach())
-        # Update running sglv_volume per batch
+        # 更新时序 SGLV 体缓存。
         self.sglv_volume = u * self.sglv_volume.detach() + (1 - u) * new_volume
 
     def forward(self, origin, P, V, input_image, depth_map, use_detailed=True, reset_model=True):
+        """前向传播。
+
+        返回:
+            envmap: 当前帧预测环境图。
+            last: 融合前的上一帧环境图缓存。
+        """
         device = next(self.sglv_encoder_decoder.parameters()).device
         origin = origin.to(device)
         P = P.to(device)
@@ -151,7 +164,7 @@ class LightingEstimationModel(nn.Module):
         depth_map = depth_map.to(device)
         if reset_model:
             self.reset()
-        # Ensure batch dims for inputs
+        # 统一输入维度，确保存在 batch 维。
         if input_image.dim() == 3:
             input_image = input_image.unsqueeze(0)
             depth_map = depth_map.unsqueeze(0)
@@ -169,7 +182,7 @@ class LightingEstimationModel(nn.Module):
                 self.depth_accum = torch.zeros(B, 1, *self.output_resolution, device=device)
                 self.weight_accum = torch.zeros(B, 1, *self.output_resolution, device=device)
             detailed_envmap, depth_pano = self.detailed_rednerer.render(origin, P, V, input_image, depth_map)
-            # mask shape (B,1,H,W)
+            # 可见性掩码形状为 (B,1,H,W)。
             mask = (detailed_envmap > 0).any(dim=1, keepdim=True).float()
             envmap, self.depth_accum, self.weight_accum = self.blending_network(
                 last, envmap, detailed_envmap, mask, depth_pano, self.depth_accum.detach(), self.weight_accum.detach()
@@ -178,6 +191,7 @@ class LightingEstimationModel(nn.Module):
         return envmap, last
 
     def reset(self):
+        """清空时序缓存状态。"""
         self.voxel_range = None
         self.sglv_volume = None
         self.prev_envmap = None

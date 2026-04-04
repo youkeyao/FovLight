@@ -1,3 +1,8 @@
+"""通用工具函数集合。
+
+包含投影矩阵、色彩转换、指标计算与体素可视化等辅助能力。
+"""
+
 import torch
 import math
 import numpy as np
@@ -99,13 +104,14 @@ def visualize_voxel_data(voxel_data, voxel_range):
             f.write(f"{x} {y} {z} {r} {g} {b} {alpha}\n")
 
 def linear_to_srgb(linear_rgb_array, exposure=0):
+    """将线性 RGB 做色调映射并转换到显示域。"""
     x = linear_rgb_array.astype(np.float32) * (2.0 ** exposure)
     
     # 为了防止负值导致的计算错误 (虽然线性光不应有负值)
     x = np.maximum(x, 0.0)
 
-    # 2. Filmic Tone Mapping (ACES 近似算法)
-    # 这是一个被广泛用于模拟 Filmic look 的 Narkowicz ACES 拟合曲线。
+    # 2. 胶片风格色调映射（ACES 近似算法）
+    # 这里使用常见的 Narkowicz ACES 拟合曲线压缩高动态范围。
     # 它能很好地模拟高动态范围压缩和高光去饱和。
     # 公式: y = (x * (a*x + b)) / (x * (c*x + d) + e)
     a = 2.51
@@ -119,18 +125,19 @@ def linear_to_srgb(linear_rgb_array, exposure=0):
     # 截断到 0-1 范围
     mapped = np.clip(mapped, 0.0, 1.0)
 
-    # 3. Gamma 矫正 (Linear -> sRGB)
+    # 3. Gamma 矫正（线性空间 -> sRGB 显示空间）
     # ACES 拟合曲线输出的结果通常被认为是“适合显示的线性值”，
-    # 但为了在普通显示器(sRGB)上看起来正确，通常还需要应用 Gamma 1/2.2
+    # 但为了在普通 sRGB 显示器上显示正确，通常还需要应用 Gamma 1/2.2
     # 注意：Blender 内部流程复杂，但数学模拟通常包含这一步。
     # 如果你发现画面太白，可以去掉这一步，或者改用 sRGB 标准公式。
     
-    # 简单的 Gamma 2.2 近似:
+    # 采用简化的 Gamma 2.2 近似：
     result = np.power(mapped, 1.0 / 2.2)
 
     return result
 
 def psnr(img1, img2):
+    """计算峰值信噪比（PSNR）。"""
     mse = np.mean((img1 - img2) ** 2)
     if mse == 0:
         return float('inf')
@@ -138,6 +145,7 @@ def psnr(img1, img2):
     return 20 * np.log10(PIXEL_MAX / np.sqrt(mse))
 
 def compute_peli_pyramid(image):
+    """构建 Peli 频带金字塔。"""
     # 1. 预处理：转灰度 + 归一化
     if len(image.shape) == 3:
         img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float64) / 255.0
@@ -146,7 +154,7 @@ def compute_peli_pyramid(image):
     
     rows, cols = img_gray.shape
     
-    # 2. 构建频率坐标网格 (Frequency Grid)
+    # 2. 构建频率坐标网格。
     u = np.arange(1, cols + 1)
     v = np.arange(1, rows + 1)
     U, V = np.meshgrid(u, v)
@@ -159,7 +167,7 @@ def compute_peli_pyramid(image):
     # 3. FFT 变换到频域
     fourier_image = np.fft.fftshift(np.fft.fft2(img_gray))
     
-    # 4. 定义倍频程 (Octave Bands)
+    # 4. 定义倍频程频带。
     min_dim = min(rows, cols)
     octave_bands = [2.0, 4.0] 
     while True:
@@ -174,8 +182,8 @@ def compute_peli_pyramid(image):
     
     for level in range(len(octave_bands)):
         if level == 0:
-            # 低频残差 / Low frequency residual
-            # MATLAB: mask = (dist > band[0]) & (dist <= band[1]) ... then 1-filter
+            # 低频残差带。
+            # 与 MATLAB 版本一致：先构建过渡带，再做 1-filter。
             mask_trans = (distances > octave_bands[level]) & (distances <= octave_bands[level+1])
             term = 0.5 * (1 + np.cos(np.pi * log2_distances - np.log2(octave_bands[level+1]) * np.pi))
             
@@ -185,19 +193,19 @@ def compute_peli_pyramid(image):
             filt[distances > octave_bands[level+1]] = 0.0 # 高频部分切除
             
         elif level == len(octave_bands) - 1:
-            # 高频残差 / High frequency residual
+            # 高频残差带。
             mask = distances > octave_bands[level-1]
             term = 0.5 * (1 + np.cos(np.pi * log2_distances - np.log2(octave_bands[level-1]) * np.pi))
             filt = (1.0 - term) * mask
             
         else:
-            # 标准带通 / Standard Band-pass
+            # 标准带通频段。
             mask = (distances > octave_bands[level-1]) & (distances <= octave_bands[level+1])
             term = 0.5 * (1 + np.cos(np.pi * log2_distances - np.log2(octave_bands[level]) * np.pi))
             filt = term * mask
             
         # --- 频域滤波并逆变换回空域 ---
-        # 结果保留实部 (Real part of IFFT)
+        # 逆变换后保留实部。
         band_freq = fourier_image * filt
         band_spatial = np.real(np.fft.ifft2(np.fft.ifftshift(band_freq)))
         
@@ -206,6 +214,7 @@ def compute_peli_pyramid(image):
     return spatial_bands, octave_bands
 
 def calculate_spatial_metrics(img, mask, fov=120):
+    """计算掩码区域的主导频带对比度与 CPD。"""
     spatial_bands, octave_bands = compute_peli_pyramid(img)
     cpd_values = octave_bands / fov
     

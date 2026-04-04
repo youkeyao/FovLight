@@ -1,3 +1,8 @@
+"""交互式测试脚本。
+
+加载模型后随机抽样数据，显示输入、真值环境图与预测结果，并计算常见指标。
+"""
+
 import torch
 from torch.utils.data import ConcatDataset, DataLoader
 import cv2
@@ -6,12 +11,12 @@ import time
 from accelerate import Accelerator
 from skimage.metrics import structural_similarity as ssim
 from EnvMapDatasets import EnvMapDatasets
-from KePanoLightDataset import KePanoLightDataset
 from LightEstimationModel import LightingEstimationModel
 from ObjectRenderer import ObjectRenderer
 from utils import create_projection_matrix, linear_to_srgb, psnr
 
 def main(checkpoint_dir, model_param):
+    """执行可视化测试与指标打印。"""
     accelerator = Accelerator()
     device = accelerator.device
     print(f"Using device: {device}")
@@ -21,7 +26,7 @@ def main(checkpoint_dir, model_param):
     accelerator.load_state(checkpoint_dir)
     projection_matrix = create_projection_matrix(120, 832/400, 0.1, 20)
     dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(400, 832), lighting_resolution=model.output_resolution)
-    new_dataset = KePanoLightDataset(root='/mnt/data/youkeyao/Datasets/FutureHouse/KePanoLight')
+    # new_dataset = KePanoLightDataset(root='/mnt/data/youkeyao/Datasets/FutureHouse/KePanoLight')
     # dataloader = DataLoader(ConcatDataset([dataset, new_dataset]), batch_size=1, shuffle=True)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
     renderer = ObjectRenderer((256, 256))
@@ -29,6 +34,7 @@ def main(checkpoint_dir, model_param):
 
     model.eval()
     with torch.no_grad():
+        # 逐样本推理并实时展示对比结果。
         for batch in dataloader:
             image = batch['image'][0]
             depth = batch['depth'][0]
@@ -38,6 +44,7 @@ def main(checkpoint_dir, model_param):
             lighting_np = lighting.permute(1, 2, 0).numpy()[:, :, ::-1]
             print(pos)
 
+            # 记录单次推理耗时。
             print("Start")
             start_time = time.time()
             envmap, _ = model(pos, projection_matrix, torch.eye(4), image, depth, True, True)
@@ -82,9 +89,3 @@ if __name__ == "__main__":
     # main("checkpoints/network_0", ((84, 60, 64), (320, 640), 100, 3))
     # main("checkpoints/network_1", ((84, 60, 64), (320, 640), 100, 2))
     # main("checkpoints/network_2", ((84, 60, 64), (320, 640), 100, 1))
-
-    # main("checkpoints/base", ((168, 120, 128), (160, 320), 100, True))
-    # main("checkpoints/voxel", ((84, 60, 64), (160, 320), 100, True))
-    # main("checkpoints/resolution", ((168, 120, 128), (80, 160), 100, True))
-    # main("checkpoints/sample", ((168, 120, 128), (160, 320), 50, True))
-    # main("checkpoints/network", ((168, 120, 128), (160, 320), 100, 3))

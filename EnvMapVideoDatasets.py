@@ -1,3 +1,5 @@
+"""视频环境光数据集读取模块。"""
+
 import os
 from glob import glob
 import re
@@ -8,6 +10,8 @@ from torch.utils.data import Dataset
 import numpy as np
 
 class EnvMapVideoDatasets(Dataset):
+    """读取场景视频帧、深度序列、位姿与目标环境图。"""
+
     def __init__(self, root_dir):
         self.root_dir = root_dir
         scenes = sorted(glob(os.path.join(root_dir, "scene_*")))
@@ -39,6 +43,7 @@ class EnvMapVideoDatasets(Dataset):
         return len(self.data_paths)
 
     def load_camera_matrices(self, path):
+        """从文本文件读取逐帧 4x4 相机矩阵。"""
         matrices = []
         current = []
         with open(path, "r") as f:
@@ -58,6 +63,7 @@ class EnvMapVideoDatasets(Dataset):
         return np.stack(matrices)
 
     def __getitem__(self, idx):
+        """按索引返回一个完整视频样本。"""
         scene_path, filename, position = self.data_paths[idx]
 
         # --- 读取相机姿态矩阵 ---
@@ -83,7 +89,7 @@ class EnvMapVideoDatasets(Dataset):
             depth = cv2.imread(depth_paths[i], -1)[:, :, 0:1].astype(np.float32)
             depth = torch.from_numpy(depth).permute(2, 0, 1)
 
-            # RGB
+            # 读取并转换 RGB 帧。
             rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
             rgb = torch.from_numpy(rgb).permute(2, 0, 1).float() / 255.0
 
@@ -95,7 +101,7 @@ class EnvMapVideoDatasets(Dataset):
         # --- 环境图 ---
         lighting = cv2.imread(os.path.join(scene_path, filename), cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)[:, :, 0:3][:, :, ::-1].astype(np.float32)
 
-        # --- 转为Tensor Stack ---
+        # --- 堆叠为张量序列 ---
         rgb_tensor = torch.stack(rgb_frames)     # [N,3,H,W]
         depth_tensor = torch.stack(depth_frames) # [N,1,H,W]
         pose_tensor = torch.from_numpy(poses[:len(rgb_frames)]).float()  # [N,4,4]

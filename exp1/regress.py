@@ -1,3 +1,8 @@
+"""客观指标回归脚本。
+
+提取多种图像质量指标并训练 SVR 拟合主观偏好分数。
+"""
+
 import os
 import cv2
 import numpy as np
@@ -28,13 +33,13 @@ except ImportError as e:
     print(f"Warning: 缺少部分依赖库 ({e})，相关指标将跳过或返回0。")
 
 # ==========================================
-# PART 1: 用户提供的指标计算模块
+# 第一部分：用户提供的指标计算模块
 # ==========================================
 
 METRIC_MODELS = {}
 
 def init_metrics(device='cuda'):
-    """初始化深度学习 Metric 模型"""
+    """初始化深度学习质量评估模型。"""
     # if not torch.cuda.is_available():
     device = 'cpu'
     device = torch.device(device)
@@ -65,6 +70,7 @@ def init_metrics(device='cuda'):
     return device
 
 def safe_predict(model_key, img_tensor_x, img_tensor_y=None):
+    """安全执行指标模型推理，失败时返回 0。"""
     model = METRIC_MODELS.get(model_key)
     if model is None:
         print(f"  [Warning] 模型 {model_key} 未加载")
@@ -127,14 +133,14 @@ def calc_flip(img_path, gt_path):
         return 0.0
 
 def calculate_15_metrics(img_path, gt_path, device):
-    """计算单个图像对的特征向量"""
+    """计算单个图像对的 15 维质量特征。"""
     img_bgr = cv2.imread(img_path)
     gt_bgr = cv2.imread(gt_path)
     
     if img_bgr is None or gt_bgr is None:
         raise ValueError(f"Image not found: {img_path} or {gt_path}")
 
-    # Resize if needed
+    # 如尺寸不一致，先重采样到真值尺寸。
     if img_bgr.shape != gt_bgr.shape:
         img_bgr = cv2.resize(img_bgr, (gt_bgr.shape[1], gt_bgr.shape[0]))
 
@@ -174,10 +180,12 @@ def calculate_15_metrics(img_path, gt_path, device):
 
 
 # ==========================================
-# PART 2: 数据加载与训练
+# 第二部分：数据加载与训练
 # ==========================================
 
 class MetricLearner:
+    """指标学习器：数据准备、训练与可视化。"""
+
     def __init__(self, root_dir, csv_path, mat_type, font_size=12):
         self.root_dir = root_dir
         self.df_labels = pd.read_csv(csv_path)
@@ -247,7 +255,7 @@ class MetricLearner:
         plt.scatter(y_true, y_pred, c='blue', alpha=0.6, edgecolors='w', s=scatter_size, label='Data Points')
 
         # 2. 绘制拟合直线 (红色虚线)
-        # 使用 polyfit 做简单线性回归用于显示趋势
+        # 使用 polyfit 做简单线性回归，仅用于显示趋势线。
         if len(y_true) > 1:
             z = np.polyfit(y_true, y_pred, 1)
             p = np.poly1d(z)
@@ -291,6 +299,7 @@ class MetricLearner:
         print(f"结果图已保存至: {save_name}")
 
     def train(self, X, y, output_model_path):
+        """训练 SVR 并保存模型与标准化器。"""
         if len(X) == 0:
             print("没有数据，无法训练。请检查路径和文件名是否匹配。")
             return
@@ -305,7 +314,7 @@ class MetricLearner:
         print("开始训练 SVR ...")
         svr.fit(X_scaled, y)
         
-        # 3. 评估拟合程度 (Fitting Quality)
+        # 3. 评估拟合程度
         y_pred = svr.predict(X_scaled)
         
         # 计算 R^2

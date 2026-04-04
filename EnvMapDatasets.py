@@ -1,3 +1,5 @@
+"""单帧环境光数据集读取模块。"""
+
 import os
 import re
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
@@ -7,18 +9,17 @@ import torch
 from torch.utils.data import Dataset
 
 class EnvMapDatasets(Dataset):
+    """读取静态场景图像、深度和环境贴图。"""
+
     def __init__(self, root_dir, image_resolution=(240, 320), lighting_resolution=(160, 320)):
-        """
-        Args:
-            root_dir (string): Directory with all the data.
-        """
+        """初始化数据集路径与输出分辨率。"""
         self.image_resolution = image_resolution
         self.lighting_resolution = lighting_resolution
         self.root_dir = root_dir
         self.data_paths = self.load_data_paths()
 
     def load_data_paths(self):
-        """Load paths to all data files for the specified scenes."""
+        """扫描目录并收集样本路径与相机位置。"""
         data_paths = []
         pattern = re.compile(
             r'^'                # 开头
@@ -27,7 +28,7 @@ class EnvMapDatasets(Dataset):
             r'([-+]?\d*\.?\d+)' # 第二个浮点数
             r'_'                # 下划线分隔符
             r'([-+]?\d*\.?\d+)' # 第三个浮点数
-            r'\.exr$'           # .png 扩展名
+            r'\.exr$'           # exr 扩展名
         )
         for scene in os.listdir(self.root_dir):
             image_path = os.path.join(self.root_dir, scene, "image.png")
@@ -51,34 +52,33 @@ class EnvMapDatasets(Dataset):
         return len(self.data_paths)
 
     def __getitem__(self, idx):
+        """按索引返回一个训练样本字典。"""
         scene_data = self.data_paths[idx]
         image_path = scene_data[0]
         depth_path = scene_data[1]
         lighting_path = scene_data[2]
         pos = scene_data[3]
 
-        # Load image
+        # 第一段：读取并缩放输入图像。
         image = cv2.imread(image_path, -1)[:, :, 0:3][:, :, ::-1].astype(np.float32) / 255
         image = cv2.resize(image, (self.image_resolution[1], self.image_resolution[0]))
-        # srgb to linear
+        # 可选：sRGB 转线性空间。
         # image = np.where(
         #     image <= 0.04045,
         #     image / 12.92,
         #     ((image + 0.055) / 1.055) ** 2.4
         # )
 
-        # Load depth
+        # 第二段：读取并缩放深度图。
         depth = cv2.imread(depth_path, -1)[:, :, 0:1].astype(np.float32)
         depth = cv2.resize(depth, (self.image_resolution[1], self.image_resolution[0])).reshape(self.image_resolution[0], self.image_resolution[1], 1)
 
-        # Load lighting environment map
+        # 第三段：读取并缩放环境贴图。
         lighting = cv2.imread(lighting_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)[:, :, 0:3][:, :, ::-1].astype(np.float32)
         lighting = cv2.resize(lighting, (self.lighting_resolution[1], self.lighting_resolution[0]))
 
-        # Create a sample dictionary
-        # image: channel, height, width
-        # depth: channel, height, width
-        # lighting: channel, height, width
+        # 第四段：组装为训练样本字典（通道优先格式）。
+        # image/depth/lighting 统一为 (C, H, W)。
         sample = {
             "name": os.path.join(*lighting_path.split(os.sep)[-2:]),
             'image': torch.from_numpy(image).permute(2, 0, 1),
@@ -89,7 +89,7 @@ class EnvMapDatasets(Dataset):
 
         return sample
 
-# Example usage
+# 使用示例
 if __name__ == "__main__":
     dataset = EnvMapDatasets(root_dir='/mnt/data/youkeyao/Datasets/LightEnv', image_resolution=(400, 832), lighting_resolution=(320, 640))
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)

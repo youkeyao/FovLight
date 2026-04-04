@@ -1,3 +1,8 @@
+"""FOV 与 JND 关系分析脚本。
+
+解析评测数据并进行心理测量曲线拟合与回归可视化。
+"""
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,22 +35,19 @@ else:
 # ==========================================
 
 def psychometric_function(x, beta, mu):
-    # S型曲线
+    """心理测量函数（S 形）。"""
+    # S 型曲线
     gamma = 0.5
     return gamma + (1 - gamma) / (1 + np.exp(-beta * (x - mu)))
 
 
 def fit_psychometric(x_data, y_data):
-    """Robustly fit the psychometric function.
-
-    Tries multiple initial guesses and uses bounds on the threshold (mu).
-    Returns optimized parameters or None when fitting fails or data is degenerate.
-    """
+    """稳健拟合心理测量函数，失败时返回 None。"""
     x = np.asarray(x_data)
     y = np.asarray(y_data)
     if x.size == 0:
         return None
-    # If the responses are constant, covariance cannot be estimated and fit is degenerate
+    # 若响应恒定，协方差不可估计，拟合会退化。
     if np.allclose(y, y.flat[0]):
         return None
 
@@ -67,12 +69,12 @@ def fit_psychometric(x_data, y_data):
                 popt, pcov = curve_fit(psychometric_function, x, y, p0=p0, bounds=bounds, maxfev=20000)
             return popt
         except OptimizeWarning:
-            # covariance couldn't be estimated or other optimize issue; try next guess
+            # 协方差不可估计或优化异常时，尝试下一组初值。
             continue
         except Exception:
             continue
 
-    # final attempt: ignore OptimizeWarning and try a high iteration limit without bounds
+    # 最后一次尝试：忽略优化告警并放宽迭代上限。
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', OptimizeWarning)
@@ -94,6 +96,7 @@ def model_exponential(x, a, b, c):
     return a * np.exp(b * x) + c
 
 def parse_and_aggregate(text):
+    """解析原始文本并聚合为材质/FOV/模型统计表。"""
     pattern = r'--- FOV_材质:\s*(\d+)_(\w+) ---\s*\n(.*?)(?=\n---|$)'
     matches = re.findall(pattern, text, re.DOTALL)
     
@@ -137,6 +140,7 @@ def parse_and_aggregate(text):
 # ==========================================
 
 def main():
+    """执行完整分析与绘图流程。"""
     df = parse_and_aggregate(raw_data)
     PSYCHO_FONT_SIZE = 18.0
     FIT_FONT_SIZE = 10.0
@@ -281,7 +285,7 @@ def main():
         x = res['FOV']
         y = res['JND']
         
-        # 为每个材质单独创建一个 Figure
+        # 为每个材质单独创建一张图。
         plt.figure(figsize=(7, 5))
         
         best_score = -np.inf

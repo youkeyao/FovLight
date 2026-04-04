@@ -1,3 +1,8 @@
+"""主观评测统计分析脚本。
+
+基于 Thurstone Case V 与 bootstrap，输出各模型分数与显著性可视化。
+"""
+
 import pandas as pd
 import numpy as np
 from scipy.stats import norm, binomtest
@@ -52,6 +57,7 @@ BAR_WIDTH = 0.4
 # 3. 核心算法 
 # =========================
 def thurstone_case_v(C):
+    """根据成对比较矩阵估计 Thurstone z-score。"""
     N_total = C + C.T
     mask = N_total > 0
     P = np.zeros_like(C, dtype=float)
@@ -66,6 +72,7 @@ def thurstone_case_v(C):
     return z_scores
 
 def parametric_bootstrap(C, n_boot=1000):
+    """参数化 bootstrap 估计分数不确定性。"""
     N_total = C + C.T
     P_obs = np.divide(C, N_total, out=np.zeros_like(C, dtype=float), where=N_total!=0)
     boot_z_scores = []
@@ -84,6 +91,7 @@ def parametric_bootstrap(C, n_boot=1000):
     return np.array(boot_z_scores)
 
 def get_significance_heights(intervals):
+    """为显著性连线分配不重叠的显示层级。"""
     # 简单的贪心算法分配层级
     levels = []
     for start, end in intervals:

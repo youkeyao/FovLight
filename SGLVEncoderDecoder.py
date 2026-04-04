@@ -1,8 +1,15 @@
+"""SGLV 三维编码解码模块。
+
+输入 5 通道体素特征，输出用于体渲染的 SGLV 参数体与更新门控。
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class GRU3D(nn.Module):
+    """三维卷积 GRU 单元。"""
+
     def __init__(self, channels, kernel_size=3):
         super().__init__()
         padding = kernel_size // 2
@@ -13,7 +20,7 @@ class GRU3D(nn.Module):
     def forward(self, x, h_prev):
         if h_prev is None:
             h_prev = torch.zeros_like(x, device=x.device)
-        # x, h_prev shape: (B, C, D, H, W) -> concat on channel dim
+        # x 与 h_prev 形状均为 (B, C, D, H, W)，在通道维拼接。
         combined = torch.cat([x, h_prev], dim=1)
         z = torch.sigmoid(self.conv_z(combined))
         r = torch.sigmoid(self.conv_r(combined))
@@ -22,8 +29,9 @@ class GRU3D(nn.Module):
         h_new = (1 - z) * h_prev + z * h_tilde
         return h_new
 
-# 3D编码解码器
 class SGLVEncoderDecoder(nn.Module):
+    """SGLV 参数预测网络。"""
+
     def __init__(self, level=4):
         super().__init__()
         self.level = level
@@ -109,11 +117,12 @@ class SGLVEncoderDecoder(nn.Module):
         self.h1 = None
 
     def forward(self, volume):
+        """前向传播并返回 SGLV 参数体与更新系数。"""
         if self.h0 is not None:
             self.h0 = self.h0.detach()
         if self.h1 is not None:
             self.h1 = self.h1.detach()
-        # volume expected shape: (B, 5, D, H, W)
+        # 输入体素张量期望形状为 (B, 5, D, H, W)。
         Ve = volume[:, 4:5, ...]
         x = self.conv(volume)
         features = x
@@ -135,7 +144,7 @@ class SGLVEncoderDecoder(nn.Module):
             features = self.decoder1(features)
         x = features + self.h0
         # 各参数预测
-        # Heads output shape: (B, C_out, D, H, W). Ve shape: (B,1,D,H,W)
+        # 各预测头输出形状为 (B, C_out, D, H, W)，Ve 形状为 (B,1,D,H,W)。
         color = self.color_head(x) * (Ve + 1)
         alpha = self.alpha_head(x) * (Ve + 1)
         w = self.w_head(x) * (Ve + 1)
@@ -144,9 +153,10 @@ class SGLVEncoderDecoder(nn.Module):
         s = F.normalize(s, p=2, dim=1)
         u = self.u_head(x)
 
-        # Concatenate along channel dimension
+        # 在通道维拼接为最终 SGLV 参数体。
         return torch.cat([color, alpha, w, lamda, s], dim=1), u
     
     def reset(self):
+        """重置时序隐藏状态。"""
         self.h0 = None
         self.h1 = None

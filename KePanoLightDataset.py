@@ -1,3 +1,5 @@
+"""KePanoLight 数据集读取与全景重采样工具。"""
+
 import os
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2
@@ -7,10 +9,12 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 
 def fov_to_focal_length(fov_deg, sensor_width_pixels):
+    """由水平视场角估算像素焦距。"""
     fov_rad = np.deg2rad(fov_deg)
     return sensor_width_pixels / (2 * np.tan(fov_rad / 2))
 
 def equirectangular_to_perspective(input_shape=(512, 256), target_shape=(440, 385), h_fov_deg=120, yaw=0, pitch=0, roll=0):
+    """计算等距柱状图到透视图的重映射网格。"""
     # 输入参数检查
     # assert len(img.shape) == 3, "输入图像需为RGB格式"
     W, H = input_shape
@@ -30,26 +34,26 @@ def equirectangular_to_perspective(input_shape=(512, 256), target_shape=(440, 38
     xyz = np.stack([x, y, z], axis=-1)
     xyz = xyz / np.linalg.norm(xyz, axis=-1, keepdims=True)
 
-    # 应用旋转矩阵 (Yaw-Pitch-Roll顺序)
+    # 应用旋转矩阵（偏航-俯仰-滚转顺序）。
     yaw_rad = np.deg2rad(yaw)
     pitch_rad = np.deg2rad(pitch)
     roll_rad = np.deg2rad(roll)
     
-    # Yaw (绕Y轴旋转)
+    # Yaw（绕 Y 轴旋转）
     R_yaw = np.array([
         [np.cos(yaw_rad), 0, np.sin(yaw_rad)],
         [0, 1, 0],
         [-np.sin(yaw_rad), 0, np.cos(yaw_rad)]
     ])
     
-    # Pitch (绕X轴旋转)
+    # Pitch（绕 X 轴旋转）
     R_pitch = np.array([
         [1, 0, 0],
         [0, np.cos(pitch_rad), -np.sin(pitch_rad)],
         [0, np.sin(pitch_rad), np.cos(pitch_rad)]
     ])
     
-    # Roll (绕Z轴旋转)
+    # Roll（绕 Z 轴旋转）
     R_roll = np.array([
         [np.cos(roll_rad), -np.sin(roll_rad), 0],
         [np.sin(roll_rad), np.cos(roll_rad), 0],
@@ -76,6 +80,7 @@ def equirectangular_to_perspective(input_shape=(512, 256), target_shape=(440, 38
     return (map_x, map_y, xyz_rot)
 
 def tonemapper(exr,mode=0):
+    """简单色调映射函数（Gamma/ACES 近似）。"""
     if mode ==0:
         return torch.pow(torch.clamp(exr,0.0,1.0), (1/2.2))
     elif mode == 1:
@@ -132,6 +137,7 @@ class KePanoLightDataset(Dataset):
     example['mask']
     """
     def __init__(self, root, fov=120, image_resolution=(385, 440), lighting_resolution=(160, 320)):
+        """初始化数据集与重映射参数。"""
         super().__init__()
         
         self.root = root
@@ -152,12 +158,13 @@ class KePanoLightDataset(Dataset):
         self.is_random_exposure = False
 
     def __getitem__(self, index):
+        """返回一个样本（图像、深度、环境图与位置）。"""
         one_item = self.all_item[index]
         one_path = one_item[0]
         iindex = one_item[1]
         xindex, yindex = one_item[2]
         
-        # range: [-2,-0.5)
+        # 曝光随机范围示例：[-2, -0.5)。
         # if self.is_random_exposure:
         #     random_exposure = torch.rand(1)*1.5 - 2.0
         # else:
@@ -192,7 +199,7 @@ class KePanoLightDataset(Dataset):
         # image = torch.from_numpy(image)
         # image = image.permute(2,0,1)
         # image = image * torch.pow(torch.tensor(2.0),random_exposure)
-        # image = tonemapper(image,mode=1)    # ACES tonemapping
+        # image = tonemapper(image,mode=1)    # ACES 色调映射
 
         # albedo = cv2.imread(os.path.join(one_path,str(iindex)+'_albedo.hdr'),-1)[:,:,0:3]
         # albedo = cv2.resize(albedo,(self.pano_w,self.pano_h))
@@ -257,6 +264,7 @@ class KePanoLightDataset(Dataset):
         return len(self. all_item)
 
     def read_all_item(self, root):
+        """扫描并过滤可用样本列表。"""
         all_item = []
         for id in os.listdir(root):
             if not os.path.exists(os.path.join(root,id)):
@@ -291,7 +299,7 @@ class KePanoLightDataset(Dataset):
                         all_item.append(one_item)
         return all_item
 
-# Example usage
+# 使用示例
 if __name__ == "__main__":
     dataset = KePanoLightDataset(root='/mnt/data/youkeyao/Datasets/FutureHouse/KePanoLight')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)

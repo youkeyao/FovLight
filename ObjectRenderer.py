@@ -1,21 +1,34 @@
+"""基于 Mitsuba 的物体插入渲染工具。
+
+支持球体/网格渲染、平面阴影估计和背景合成。
+"""
+
 import mitsuba as mi
 import numpy as np
 import torch
+import os
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2
-from accelerate import Accelerator
-from EnvMapDatasets import EnvMapDatasets
-from LightEstimationModel import LightingEstimationModel
-from utils import get_free_gpu, create_projection_matrix, linear_to_srgb, calculate_spatial_metrics
+from utils import linear_to_srgb, calculate_spatial_metrics
 
 class ObjectRenderer:
     def __init__(self, resolution=(480, 640), fov=39.6):
+        """初始化渲染器。
+
+        参数:
+            resolution: 输出分辨率，格式为 (高, 宽)。
+            fov: 透视相机视场角（度）。
+        """
         mi.set_variant('cuda_ad_rgb')
         self.resolution = resolution
         self.fov = fov
+        # 默认相机朝向世界坐标系 -Z 方向。
         self.camera_transform = mi.ScalarTransform4f().look_at(origin=[0, 0, 0],target=[0, 0, -1],up=[0, 1, 0])
+        # 默认接收阴影平面：位于相机下方并略微前移。
         self.plane_transform = mi.ScalarTransform4f().translate(np.array([0, -1.5, -3.5])) @ mi.ScalarTransform4f().rotate([1, 0, 0], -90) @ mi.ScalarTransform4f().scale([2, 2, 1])
 
     def render_sphere(self, origin, envmap, background=None, radius=0.1, roughness=0.0, metallic=1.0, color=[1.0,1.0,1.0]):
+        """在环境光下渲染球体并可选合成背景。"""
         origin = origin.cpu().numpy()
 
         sensor = {
@@ -71,6 +84,7 @@ class ObjectRenderer:
 
         scene = mi.load_dict(scene_dict)
         imgs = mi.render(scene).numpy()
+        # 仅对 RGB 通道去噪；AOV 通道保存物体索引掩码。
         denoiser = mi.OptixDenoiser(
             input_size=(imgs.shape[1], imgs.shape[0]),
             albedo=False,
@@ -87,6 +101,7 @@ class ObjectRenderer:
         return result
 
     def render_bunny(self, origin, envmap, background=None, mesh_path=None, scale=1.0, color=[0.7, 0.7, 0.7], metallic=0.0, roughness=0.0):
+        """渲染网格物体（默认命名为 bunny）并可选合成背景。"""
         origin = origin.cpu().numpy()
 
         if mesh_path is None:
@@ -173,6 +188,7 @@ class ObjectRenderer:
         return result
 
     def render_plane(self, origin, envmap, background=None, radius=0.1, roughness=0, metallic=1.0, color=[1.0,1.0,1.0]):
+        """渲染物体与接收平面，并与背景进行合成。"""
         origin = origin.cpu().numpy()
 
         sensor = {
@@ -256,6 +272,7 @@ class ObjectRenderer:
         return result
     
     def render_shadow(self, origin, envmap, background, sphere, radius=0.1, roughness=0, metallic=1.0, color=[1.0,1.0,1.0]):
+        """估计球体在平面上的阴影并与背景合成。"""
         origin = origin.cpu().numpy()
         background = background.permute(1, 2, 0).detach().cpu().numpy()
         sphere = sphere.permute(1, 2, 0).detach().cpu().numpy()
@@ -332,7 +349,7 @@ class ObjectRenderer:
         )
         denoised_all = denoiser(imgs[:, :, 0:3]).numpy()
         mask_idx = np.rint(imgs[:, :, 3]).astype(np.int32)
-        # calculate object mask
+        # 由 AOV 形状索引推断物体/平面：较小区域视作物体，较大区域视作平面。
         unique, counts = np.unique(mask_idx, return_counts=True)
         pairs = [(int(u), int(c)) for u, c in zip(unique, counts) if int(u) != 0]
 
@@ -381,13 +398,12 @@ class ObjectRenderer:
         imgs = mi.render(scene).numpy()
         denoised_plane = denoiser(imgs[:, :, 0:3]).numpy()
 
-        # shadow = np.clip(denoised_all.sum(axis=-1, keepdims=True) / (denoised_plane.sum(axis=-1, keepdims=True) + 1e-7), 0, 1)
-        # return (1 - plane_mask - sphere_mask) * background + np.clip(shadow * plane_mask * background, 0, 1) + sphere_mask * sphere
-        
+        # 阴影比值：有物体时亮度 / 无物体时亮度。
         shadow = (denoised_all.sum(axis=-1, keepdims=True) / (denoised_plane.sum(axis=-1, keepdims=True) + 1e-7))
         return np.clip((1 - sphere_mask) * shadow * background, 0, 1) + sphere_mask * sphere
 
     def render_bunny_shadow(self, origin, envmap, background, bunny, mesh_path=None, scale=1.0, color=[1.0,1.0,1.0]):
+        """估计网格物体在平面上的阴影并与背景合成。"""
         origin = origin.cpu().numpy()
         background = background.permute(1, 2, 0).detach().cpu().numpy()
         bunny = bunny.permute(1, 2, 0).detach().cpu().numpy()
@@ -479,7 +495,7 @@ class ObjectRenderer:
         )
         denoised_all = denoiser(imgs[:, :, 0:3]).numpy()
         mask_idx = np.rint(imgs[:, :, 3]).astype(np.int32)
-        # calculate object mask
+        # 根据各 shape 的像素数量推断网格掩码和平面掩码。
         unique, counts = np.unique(mask_idx, return_counts=True)
         pairs = [(int(u), int(c)) for u, c in zip(unique, counts) if int(u) != 0]
 
@@ -531,7 +547,7 @@ class ObjectRenderer:
         shadow = (denoised_all.sum(axis=-1, keepdims=True) / (denoised_plane.sum(axis=-1, keepdims=True) + 1e-7))
         return np.clip((1 - bunny_mask) * shadow * background, 0, 1) + bunny_mask * bunny
 
-# 使用示例 — now accepts CLI args:
+    # 命令行示例：用于快速渲染验证或生成样例数据。
 if __name__ == "__main__":
     import argparse
     import os
@@ -540,7 +556,7 @@ if __name__ == "__main__":
     parser.add_argument('--background', '-b', required=True, help='Path to background image')
     parser.add_argument('--envmap', '-e', required=True, help='Path to envmap (EXR/HDRE)')
     parser.add_argument('--out', '-o', required=True, help='Output image path')
-    parser.add_argument('--resolution', '-r', type=int, nargs=2, default=None, help='Target resolution as WIDTHxHEIGHT or WIDTH,HEIGHT (optional)')
+    parser.add_argument('--resolution', '-r', type=int, nargs=2, default=None, help='Target resolution as WIDTH HEIGHT (optional)')
 
     parser.add_argument('--camera_pos', type=float, nargs=3, default=[0,0,0], help='Camera position as x,y,z')
     parser.add_argument('--camera_rot', type=float, nargs=3, default=[0,180,0], help='Camera rotation as pitch,yaw,roll in degrees')
@@ -556,7 +572,7 @@ if __name__ == "__main__":
     parser.add_argument('--sphere_metallic', type=float, default=1.0, help='Metallic value for the sphere material')
     parser.add_argument('--sphere_color', type=float, nargs=3, default=[0.3,0.3,0.3], help='Sphere base color as r,g,b (0-1)')
 
-    parser.add_argument('--flip', type=bool, default=False, help='Flip the background and output image horizontally')
+    parser.add_argument('--flip', action='store_true', help='Flip the background and output image horizontally')
     args = parser.parse_args()
 
     def _build_transform(pos, rot_deg, scale=None):
@@ -566,18 +582,18 @@ if __name__ == "__main__":
             t = t @ mi.ScalarTransform4f().scale(scale)
         return t
 
-    # Load background
+    # 读取背景图。
     bg_img = cv2.imread(args.background, -1)
     if bg_img is None:
         raise FileNotFoundError(f"Background not found: {args.background}")
     background = bg_img[:, :, 0:3][:, :, ::-1].astype(np.float32) / 255.0
 
-    # Resize if resolution provided
+    # 若提供分辨率参数，则将背景重采样到目标大小。
     if args.resolution:
         width, height = args.resolution
         background = cv2.resize(background, (width, height))
 
-    # Load envmap (keep HDR information)
+    # 读取环境贴图（保留 HDR 动态范围）。
     env = cv2.imread(args.envmap, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
     if env is None:
         raise FileNotFoundError(f"Envmap not found: {args.envmap}")
@@ -586,26 +602,30 @@ if __name__ == "__main__":
     if args.flip:
         background = cv2.flip(background, 1)
 
-    # Create renderer with resolution matching background
+    # 使用背景分辨率初始化渲染器。
     renderer = ObjectRenderer((background.shape[0], background.shape[1]), args.fov)
 
-    # Update camera transform from CLI args
+    # 根据命令行参数更新相机变换。
     cam_pos = args.camera_pos
     cam_rot = args.camera_rot
     renderer.camera_transform = _build_transform(cam_pos, cam_rot)
 
-    # Update plane transform from CLI args (apply scale as before)
+    # 根据命令行参数更新平面变换（含缩放）。
     plane_pos = args.plane_pos
     plane_rot = args.plane_rot
     plane_scale = [args.plane_scale, args.plane_scale, 1]
     renderer.plane_transform = _build_transform(plane_pos, plane_rot, scale=plane_scale)
 
-    # Render plane (default demo parameters)
+    # 预先构建常用张量，避免重复转换。
+    env_tensor = torch.tensor(envmap).permute(2, 0, 1)
+    bg_tensor = torch.tensor(background).permute(2, 0, 1)
+
+    # 先渲染物体，再估计其在平面上的接触阴影。
     sphere_pos = torch.tensor(args.sphere_pos)
     img = renderer.render_sphere(
         sphere_pos,
-        torch.tensor(envmap).permute(2, 0, 1),
-        torch.tensor(background).permute(2, 0, 1),
+        env_tensor,
+        bg_tensor,
         args.sphere_radius,
         args.sphere_roughness,
         args.sphere_metallic,
@@ -613,25 +633,18 @@ if __name__ == "__main__":
     )
     mask = renderer.render_sphere(
         sphere_pos,
-        torch.tensor(envmap).permute(2, 0, 1),
+        env_tensor,
         None,
         args.sphere_radius,
         args.sphere_roughness,
         args.sphere_metallic,
         color=args.sphere_color
     ).sum(axis=-1) > 0
-    # img = renderer.render_plane(
-    #     sphere_pos,
-    #     torch.tensor(envmap).permute(2, 0, 1),
-    #     None,
-    #     args.sphere_radius,
-    #     args.sphere_roughness,
-    #     args.sphere_metallic
-    # )
+
     img = renderer.render_shadow(
         sphere_pos,
-        torch.tensor(envmap).permute(2, 0, 1),
-        torch.tensor(background).permute(2, 0, 1),
+        env_tensor,
+        bg_tensor,
         torch.tensor(img).permute(2, 0, 1),
         args.sphere_radius,
         args.sphere_roughness,

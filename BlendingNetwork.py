@@ -1,9 +1,16 @@
+"""环境图融合网络。
+
+该模块将体渲染结果与细节渲染结果按可见性与深度一致性进行时序融合。
+"""
+
 import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class GRU2D(nn.Module):
+    """二维卷积 GRU 单元，用于保留跨帧特征记忆。"""
+
     def __init__(self, channels, kernel_size=3):
         super().__init__()
         padding = kernel_size // 2
@@ -14,7 +21,7 @@ class GRU2D(nn.Module):
     def forward(self, x, h_prev):
         if h_prev is None:
             h_prev = torch.zeros_like(x, device=x.device)
-        # x, h_prev shape: (B, C, H, W) -> concat on channel dim
+        # x 与 h_prev 形状均为 (B, C, H, W)，在通道维拼接。
         combined = torch.cat([x, h_prev], dim=1)
         r = torch.sigmoid(self.reset_gate(combined))
         z = torch.sigmoid(self.update_gate(combined))
@@ -24,6 +31,8 @@ class GRU2D(nn.Module):
         return h_next
 
 class BlendingNetwork(nn.Module):
+    """环境图融合主网络。"""
+
     def __init__(self, level=4):
         super().__init__()
         self.level = level
@@ -60,12 +69,12 @@ class BlendingNetwork(nn.Module):
             nn.ReLU(),
         )
         self.decoder2 = nn.Sequential(
-            # C256→128
+            # 通道压缩：256 -> 128
             nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
         )
         self.decoder1 = nn.Sequential(
-            # C128→64
+            # 通道压缩：128 -> 64
             nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
         )
@@ -81,11 +90,12 @@ class BlendingNetwork(nn.Module):
         self.h1 = None
 
     def forward(self, prev_hdr, hdr_env, ldr_env, mask, depth_pano, depth_accum, weight_accum):
+        """执行一次融合并更新累积深度/权重。"""
         if self.h0 is not None:
             self.h0 = self.h0.detach()
         if self.h1 is not None:
             self.h1 = self.h1.detach()
-        # Inputs expected shape: (B, C, H, W)
+        # 输入张量均采用 (B, C, H, W) 排布。
         input = torch.cat([prev_hdr, hdr_env, ldr_env, mask, 1 - mask, depth_pano, depth_accum], dim=1)
         x = self.conv(input)
         features = x
@@ -119,5 +129,6 @@ class BlendingNetwork(nn.Module):
         return Li, L_hat_D, L_hat_M
     
     def reset(self):
+        """重置循环隐藏状态。"""
         self.h0 = None
         self.h1 = None

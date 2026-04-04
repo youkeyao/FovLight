@@ -1,3 +1,8 @@
+"""训练入口脚本。
+
+该文件负责单帧数据训练流程：构建数据集、执行两阶段训练、保存与恢复检查点。
+"""
+
 import os
 import torch
 from torch.utils.data import ConcatDataset
@@ -10,38 +15,41 @@ from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs
 from tqdm import tqdm
 from EnvMapDatasets import EnvMapDatasets
-from KePanoLightDataset import KePanoLightDataset
 from LightEstimationModel import LightingEstimationModel
 from ObjectRenderer import ObjectRenderer
 from utils import create_projection_matrix
 
 class LogL2Loss(torch.nn.Module):
+    """基于 log1p 的加权 L2 损失。
+
+    对高亮区域与普通区域使用不同权重，提升强光区域拟合稳定性。
+    """
+
     def __init__(self):
         super().__init__()
 
     def forward(self, pred, target):
         log_input = torch.log1p(pred)
         log_target = torch.log1p(target)
-        # return torch.sum((log_input - log_target) ** 2)
-
-        # gray = 0.299 * target[0] + 0.587 * target[1] + 0.114 * target[2]
-        # mask = gray > 1
+        # 亮区掩码：任一通道强度超过阈值即视作高亮区域。
         mask = (target > 0.9).any(dim=0)
         w = 0.7
 
-        # return torch.sum(w * mask * ((log_input - log_target) ** 2) + (1 - w) * (~mask) * ((target - pred) ** 2))
         return torch.sum(w * mask * ((log_input - log_target) ** 2) + (1 - w) * (~mask) * ((log_input - log_target) ** 2))
 
 def train(model, projection_matrix, train_loader, criterion, optimizer, accelerator, use_detailed):
+    """执行一个训练轮次并返回平均损失。"""
     total_loss = 0
     object_renderer = ObjectRenderer((256, 256))
     render_pos = torch.tensor([0, 0, -0.5])
+    # 逐批训练：网络预测 + 渲染一致性约束。
     for batch in train_loader:
         image = batch['image']
         depth = batch['depth']
         lighting = batch['lighting']
         pos = batch["pos"]
 
+        # 前向推理并计算联合损失。
         optimizer.zero_grad()
         output, _ = model(pos, projection_matrix, torch.eye(4), image, depth, use_detailed, True)
         loss = 0
@@ -57,6 +65,7 @@ def train(model, projection_matrix, train_loader, criterion, optimizer, accelera
     return total_loss / len(train_loader)
 
 def freeze_parameters(model, layer_names):
+    """冻结指定名字子串匹配到的参数。"""
     for name, param in model.named_parameters():
         if any(layer_name in name for layer_name in layer_names):
             param.requires_grad = False
@@ -64,6 +73,7 @@ def freeze_parameters(model, layer_names):
                 param.data = param.data.detach()
 
 def main(checkpoint_dir, model_param):
+    """训练主函数：初始化组件、加载断点、分阶段训练。"""
     batch_size = 1
     learning_rate = 1e-4
     pre_epochs = 150
